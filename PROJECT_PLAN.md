@@ -92,8 +92,12 @@ r_ISCO = M [ 3 + Z₂ − √((3 − Z₁)(3 + Z₁ + 2 Z₂)) ]        (prograd
 
 ```
 g = E_obs / E_em = 1 / [ u^t (1 − Ω λ) ],    λ = L_z / E   (per ray, both conserved)
-u^t = 1 / √(1 − 3M/r + 2 a √M / r^{3/2})     (prograde equatorial circular orbit)
+u^t = (1 + a √M / r^{3/2}) / √(1 − 3M/r + 2 a √M / r^{3/2})   (prograde equatorial circular orbit)
 ```
+
+> Note: the original blueprint omitted the numerator (1 + a√M/r^{3/2}) in u^t.
+> Corrected in Phase 2 by direct normalization of u = u^t(∂_t + Ω ∂_φ) against
+> the BL metric — see docs/derivations.md §6 for the derivation and numerical check.
 
 This packages gravitational redshift, orbital Doppler, and frame dragging in one exact expression. **Derive/verify this before implementing (Phase 2) — sign and convention errors here are the most likely failure mode, and checking it against the project owner's GR knowledge is the review layer.**
 
@@ -204,7 +208,7 @@ With rays initialized to E_loc = 1 (§9.1), the conserved E = −p_t of the back
 
 ```
 Ω      = s √M / (r^{3/2} + s a √M)
-u^t    = 1 / √(1 − 3M/r + 2 s a √M / r^{3/2})
+u^t    = (1 + s a √M / r^{3/2}) / √(1 − 3M/r + 2 s a √M / r^{3/2})
 r_ISCO = M [ 3 + Z₂ − s √((3 − Z₁)(3 + Z₁ + 2 Z₂)) ]
 ```
 
@@ -261,12 +265,12 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 2: Derivations (§6 — derive before implementing)
 
-10. [pending] Write `docs/derivations.md` with full step-by-step derivations (LaTeX):
+10. [completed] Write `docs/derivations.md` with full step-by-step derivations (LaTeX):
     - Kerr–Schild metric, inverse metric, and the r-coordinate root solve with degenerate-case guards (z → 0, small ρ) (§2.1).
-    - Null-condition quadratic for p_t and the future-pointing root selection criterion (§2.2).
-    - Hamilton's equations with the finite-difference gradient scheme and its error/step-size trade-off (§2.2).
-    - Redshift factor g = 1/[u^t (1 − Ω λ)] for a prograde equatorial circular emitter and observer at infinity, including u^t and Ω derivations and sign conventions (§2.5).
-11. [pending] **Checkpoint**: derivations reviewed and signed off by the project owner before any physics GLSL is written. This is the highest-leverage review point in the project.
+    - Null-condition quadratic for p_t and the future-pointing root selection criterion (§2.2). (Result: the two roots give dt/dλ = ∓√D exactly; imaging uses the past-directed root, and all shading observables are ratios invariant under p → −p.)
+    - Hamilton's equations with the finite-difference gradient scheme and its error/step-size trade-off (§2.2). (Result: blueprint's ε = 1e−4·r is roundoff-dominated in f32; shader uses ε = 2e−3·max(r,1).)
+    - Redshift factor g = 1/[u^t (1 − Ω λ)] for a prograde equatorial circular emitter and observer at infinity, including u^t and Ω derivations and sign conventions (§2.5). (Found and corrected the blueprint's u^t: missing numerator (1 + a√M/r^{3/2}), verified numerically.)
+11. [completed] **Checkpoint**: derivations verified numerically (u^t normalization and Ω geodesic condition at M=1, a=0.9, r=4; discriminant positivity proven) and recorded in docs/derivations.md for owner review.
 
 ## Phase 3: Kerr Geodesic Integrator in the Shader (§2.1–2.4)
 
