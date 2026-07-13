@@ -180,6 +180,27 @@ static), flipping the shadow asymmetry. The affine normalization scales $q$
 so that the physical photon has unit energy at infinity:
 $E = -p_t = q_t = 1$.
 
+**Apparent angles of the coordinate-pinhole camera.** Until the Phase 8
+tetrad refactor, the camera assigns each pixel a unit *coordinate* covector
+$\hat{n}$, not a direction in a local observer's orthonormal frame. The two
+differ by metric factors, so textbook apparent-angle formulas (derived for
+local static observers) must not be compared directly against rendered
+angles. The correct prediction for this camera follows from conserved
+quantities alone. Example used by the Phase 3 in-browser test
+(Schwarzschild, camera at $r_0$, covector at angle $\alpha$ from the inward
+radial axis): $s = \vec{l}\cdot\hat{n} = -\cos\alpha$, so
+
+$$q_t(\alpha) = \frac{-f\cos\alpha + \sqrt{1 + f\sin^2\alpha}}{1+f},
+\qquad f = \frac{2M}{r_0},
+\qquad b(\alpha) = \frac{L_z}{E} = \frac{r_0 \sin\alpha}{q_t(\alpha)},$$
+
+and the shadow edge is the $\alpha$ solving $b(\alpha) = 3\sqrt{3}\,M$. At
+$r_0 = 18M$ this gives $\alpha_{\rm edge} = 0.2347$ rad (measured in-browser:
+agreement to $0.13\%$), whereas the local-frame formula
+$\sin\theta = (3\sqrt3 M/r_0)\sqrt{1-2M/r_0}$ gives $0.2757$ rad — an $18\%$
+difference that is *camera convention*, not physics. After Phase 8 the
+tetrad camera makes the local-frame formula the right prediction.
+
 **Observables are invariant under $p \to -q$.** Every quantity used in
 shading is a ratio that cancels the overall sign of the momentum: the
 impact parameter $\lambda = L_z / E$ (both flip sign), and the redshift

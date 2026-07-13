@@ -274,12 +274,12 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 3: Kerr Geodesic Integrator in the Shader (§2.1–2.4)
 
-12. [pending] Kerr–Schild metric evaluation in GLSL (r-root with guarded square roots) and Hamiltonian H = ½ g^{μν} p_μ p_ν.
-13. [pending] RK4 integration of Hamilton's equations with finite-difference ∂H/∂x (option (a)); adaptive dλ heuristic clamped to [dλ_min, dλ_max]; fixed max-step loop with early-out flag (driver-safe, §6).
-14. [pending] Termination logic (§2.3): capture at r < 1.02 r_+, escape to starfield, budget-exceeded handling.
-15. [pending] **Debug false-color views built before first full render** (§2.4): step count, |H| drift, final r.
-16. [pending] Spin uniform a/M ∈ [0, 0.998] wired to a provisional slider; verify shadow asymmetry appears with spin; Einstein ring and lensed stars visible.
-17. [pending] Commit; **checkpoint**: inspect debug views (bounded |H| drift, sane step counts) and shadow morphology before validation phase.
+12. [completed] Kerr–Schild metric evaluation in GLSL (r-root with guarded square roots) and Hamiltonian H = ½ g^{μν} p_μ p_ν.
+13. [completed] RK4 integration of Hamilton's equations with finite-difference ∂H/∂x (option (a)); adaptive dλ displacement-bounded heuristic dλ = 0.1 min(r − 0.9 r_H, r)/|dx/dλ|, clamped; fixed max-step loop with early-out (§6).
+14. [completed] Termination logic (§2.3): capture at r < r_+(1 + 0.02√(1−a²)) — buffer scaled so it stays inside the prograde photon orbit near-extremal — plus |p|² > 10⁸ momentum-blowup capture (past-directed shadow rays hug the horizon with exponential blueshift); escape to starfield at r > 200 M; budget-exceeded treated as captured.
+15. [completed] **Debug false-color views built before first full render** (§2.4): step count, |H| drift, final r.
+16. [completed] Spin uniform a/M ∈ [0, 0.998] wired to a provisional slider; shadow asymmetry verified quantitatively (centroid shift 6.8% of width at a = 0.998, 0.2% at a = 0); Einstein ring and lensed stars visible.
+17. [completed] Commit; **checkpoint**: e2e test `e2e/phase3.cjs` PASS (report: `e2e/reports/phase3.md`) — Schwarzschild shadow radius matches the coordinate-camera analytic prediction to 0.13%, |H| drift bounded, frame-dragging asymmetry confirmed.
 
 ## Phase 4: Python Validation Suite (§5)
 
