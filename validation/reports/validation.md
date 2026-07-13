@@ -1,9 +1,9 @@
 # Validation Suite Report
 
-**Command:** `uv run python run_validation.py` · **Total runtime:** 31.2 s
-(convergence 16.0 s, b_crit 1.8 s,
+**Command:** `uv run python run_validation.py` · **Total runtime:** 30.9 s
+(convergence 15.8 s, b_crit 1.7 s,
 photon shell 8.5 s, drift 0.6 s,
-plunge 3.5 s)
+plunge 3.4 s)
 
 **Result: PASS** — 12/12 checks.
 

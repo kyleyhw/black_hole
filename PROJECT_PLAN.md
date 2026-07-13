@@ -6,6 +6,14 @@ Portfolio thesis: *physics → numerics → validation → rendering*, in that o
 
 Part I is the specification; Part II is the task list. Tasks reference specification sections (e.g. *§2.2*). Phases 1–11 each end at a **review checkpoint**: work pauses for explicit confirmation before the next phase begins. Phases 0–7 constitute the core release; Phases 8–11 are the extended features (§9), committed scope sequenced after the core release rather than optional stretch goals.
 
+> **Status: all 11 phases complete.** Final certification (2026-07-13): all 8
+> browser e2e suites pass against the final build and the float64 validation
+> suite passes 12/12 checks. Two items remain owner-side by nature: enabling
+> GitHub Pages once (Settings → Pages → Source: GitHub Actions — the Actions
+> build is green and deploys on the next push once enabled) and one exercise
+> of the WebGPU HQ path in a WebGPU-capable browser (the pixel-parity test
+> runs automatically there; this container's Chromium has no adapter).
+
 ---
 
 # Part I: Technical Specification
