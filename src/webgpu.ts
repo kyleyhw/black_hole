@@ -56,15 +56,26 @@ export function webGpuSupported(): boolean {
   return typeof navigator !== "undefined" && "gpu" in navigator;
 }
 
+// Chromium invalidates the wire instance backing mapAsync callbacks if the
+// last GPUAdapter reference is garbage-collected; sessions register their
+// adapter here for their lifetime. (A bare `void adapter` gets tree-shaken.)
+const retainedAdapters = new Set<GPUAdapter>();
+
 export interface HqSession {
   /** Accumulate one more sample; resolves when submitted. */
   step(): void;
   readonly samples: () => number;
+  /** Read back the mean radiance image (RGBA f32 per pixel) — used by the
+   * parity test and available for tainted-canvas-free PNG export. */
+  readback(): Promise<Float32Array>;
   destroy(): void;
 }
 
+/** canvas = null runs compute-only (no presentation): used by the parity
+ * test — headless SwiftShader breaks mapAsync once a canvas context is
+ * configured on the device — and usable anywhere readback suffices. */
 export async function createHqSession(
-  canvas: HTMLCanvasElement,
+  canvas: HTMLCanvasElement | null,
   width: number,
   height: number,
   state: HqState,
@@ -72,14 +83,18 @@ export async function createHqSession(
   if (!webGpuSupported()) throw new Error("WebGPU is not available in this browser.");
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) throw new Error("No WebGPU adapter found.");
+  retainedAdapters.add(adapter);
   const device = await adapter.requestDevice();
 
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("webgpu");
-  if (!ctx) throw new Error("Could not create a WebGPU canvas context.");
+  let ctx: GPUCanvasContext | null = null;
   const format = navigator.gpu.getPreferredCanvasFormat();
-  ctx.configure({ device, format, alphaMode: "opaque" });
+  if (canvas) {
+    canvas.width = width;
+    canvas.height = height;
+    ctx = canvas.getContext("webgpu");
+    if (!ctx) throw new Error("Could not create a WebGPU canvas context.");
+    ctx.configure({ device, format, alphaMode: "opaque" });
+  }
 
   // Explicit ArrayBuffer backing: TS 5.7+ types Float32Array over
   // ArrayBufferLike, which GPUAllowSharedBufferSource rejects.
@@ -116,7 +131,11 @@ export async function createHqSession(
   });
   const accumBuf = device.createBuffer({
     size: width * height * 16,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+  });
+  const stagingBuf = device.createBuffer({
+    size: width * height * 16,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
   });
   device.queue.writeBuffer(accumBuf, 0, new Float32Array(width * height * 4));
   const metaBuf = device.createBuffer({
@@ -164,23 +183,38 @@ export async function createHqSession(
       cp.setBindGroup(0, computeBind);
       cp.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8));
       cp.end();
-      const rp = enc.beginRenderPass({
-        colorAttachments: [
-          { view: ctx.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } },
-        ],
-      });
-      rp.setPipeline(presentPipeline);
-      rp.setBindGroup(0, presentBind);
-      rp.draw(3);
-      rp.end();
+      if (ctx) {
+        const rp = enc.beginRenderPass({
+          colorAttachments: [
+            { view: ctx.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } },
+          ],
+        });
+        rp.setPipeline(presentPipeline);
+        rp.setBindGroup(0, presentBind);
+        rp.draw(3);
+        rp.end();
+      }
       device.queue.submit([enc.finish()]);
     },
     samples: () => n,
+    async readback(): Promise<Float32Array> {
+      const enc = device.createCommandEncoder();
+      enc.copyBufferToBuffer(accumBuf, 0, stagingBuf, 0, width * height * 16);
+      device.queue.submit([enc.finish()]);
+      await stagingBuf.mapAsync(GPUMapMode.READ);
+      const data = new Float32Array(stagingBuf.getMappedRange().slice(0));
+      stagingBuf.unmap();
+      const inv = 1 / Math.max(n, 1);
+      for (let i = 0; i < data.length; i++) data[i] = (data[i] ?? 0) * inv;
+      return data;
+    },
     destroy(): void {
       uBuf.destroy();
       accumBuf.destroy();
+      stagingBuf.destroy();
       metaBuf.destroy();
       device.destroy();
+      retainedAdapters.delete(adapter);
     },
   };
 }

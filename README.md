@@ -59,6 +59,40 @@ The mass "slider" is a pure display rescale — $M$ is scale-free in
 geometrized units, which is itself the physics: the readouts convert
 $r_+$ and $r_{\rm ISCO}$ to km/au for your chosen mass.
 
+## What's physical and what isn't
+
+**Exact GR.** All light propagation in Kerr mode: every pixel is a
+numerically integrated null geodesic, so the shadow, *all* lensing —
+including the lensing of the background (Einstein-ring streaking, multiple
+imaging near the photon shell) — frame dragging, and aberration are the
+real thing. So are the camera model (proper tetrad angles; the free-fall
+camera rides a true timelike geodesic), the sky's per-pixel red/blueshift,
+the disk's orbital kinematics and its full redshift factor
+(gravitational + Doppler + frame dragging) with $g^4$ beaming, the live
+ISCO inner edge, and the mass rescaling.
+
+**Physically structured, stylistically dressed.** The background *pattern*
+is not a star catalog — stars are procedurally placed with plausible
+brightness/temperature distributions; their *deflection* is exact, but
+*where* a star sits is invented. The disk's emissivity profile is
+Novikov–Thorne-like, its colors come from a compact blackbody ramp, and its
+turbulent texture is value noise (advected at the true per-annulus
+Keplerian rate) — the structure of the shading is physics, the detailing is
+aesthetic. ACES tonemapping and bloom are display choices: colors are not
+spectrophotometric predictions.
+
+**Approximations, labeled in-app.** The star renderer does not conserve
+surface brightness under magnification (lensed streaks render brighter
+than physical — doing it right needs magnification-tensor filtering, cf.
+the DNGR paper). The tilted disk at $a \neq 0$ is a kinematic
+approximation (closed circular orbits off the equator don't exist in
+Kerr); it is exact at $a = 0$, and light propagation stays exact
+regardless. The multi-mass mode is *linearized* gravity with a validity
+meter — its "capture" spheres regularize a broken approximation, they are
+not horizons. The ergosphere/photon-ring overlays are schematic markers
+drawn without lensing, deliberately. Rays that exhaust the step budget
+(photon-shell strugglers) render as shadow.
+
 ## The numerics
 
 RK4 integration of Hamilton's equations with central-difference gradients

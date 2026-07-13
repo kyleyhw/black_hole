@@ -32,8 +32,8 @@ async function startPreview() {
   return proc;
 }
 
-async function launchPage({ width = 800, height = 600 } = {}) {
-  const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+async function launchPage({ width = 800, height = 600, args = [] } = {}) {
+  const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args });
   const page = await browser.newPage({ viewport: { width, height } });
   page.on("pageerror", (e) => {
     console.error("PAGE ERROR:", e.message);

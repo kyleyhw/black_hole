@@ -352,6 +352,52 @@ function releaseCamera(): void {
 // --- HQ still (WebGPU): modal overlay with progressive accumulation ---
 const HQ_SAMPLES = 256;
 
+// The exact scene state the WebGPU port renders — shared by the HQ modal
+// and the parity test so both backends see identical inputs.
+function buildHqState(): import("./webgpu").HqState {
+  const b = camera.basis();
+  const u4: Vec4 = freefall.active ? freefall.fourVelocity() : staticObserver(b.pos, params.spin);
+  const tetrad = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
+  const ci = Math.cos(params.diskIncl);
+  const si = Math.sin(params.diskIncl);
+  return {
+    camPos: b.pos,
+    right: b.right,
+    up: b.up,
+    forward: b.forward,
+    tanHalfFov: Math.tan(camera.fovY / 2),
+    spin: params.spin,
+    maxSteps: params.maxSteps,
+    diskInner: riscoOf(params.spin, params.diskSense),
+    diskOuter: params.diskOuter,
+    diskGain: params.diskGain,
+    beaming: params.beaming,
+    diskOn: params.diskOn,
+    sense: params.diskSense,
+    diskNormal: [si, 0, ci],
+    diskE1: [ci, 0, -si],
+    diskE2: [0, 1, 0],
+    time: (performance.now() / 1000) % 1800,
+    skyShift: params.skyShift,
+    tetrad: tetrad.map((e): [number, number, number, number] => [e[1], e[2], e[3], e[0]]),
+  };
+}
+
+// Numerical parity entry point for the e2e suite: compute-only WebGPU
+// session (headless-presentation-safe), N samples, tonemapped readback.
+async function hqParity(w: number, h: number, samples: number): Promise<number[]> {
+  const session = await createHqSession(null, w, h, buildHqState());
+  for (let i = 0; i < samples; i++) session.step();
+  const mean = await session.readback();
+  session.destroy();
+  const aces = (x: number): number =>
+    Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
+  const out: number[] = new Array(w * h);
+  for (let i = 0; i < w * h; i++)
+    out[i] = Math.round(255 * Math.pow(aces(mean[i * 4] ?? 0), 1 / 2.2));
+  return out;
+}
+
 async function openHqStill(): Promise<void> {
   if (params.mode === "multi") {
     alert("HQ stills render the Kerr scene; switch out of multi-mass mode.");
@@ -399,34 +445,18 @@ async function openHqStill(): Promise<void> {
   });
 
   try {
-    const b = camera.basis();
-    const u4: Vec4 = freefall.active ? freefall.fourVelocity() : staticObserver(b.pos, params.spin);
-    const tetrad = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
-    const ci = Math.cos(params.diskIncl);
-    const si = Math.sin(params.diskIncl);
-    session = await createHqSession(hqCanvas, w, h, {
-      camPos: b.pos,
-      right: b.right,
-      up: b.up,
-      forward: b.forward,
-      tanHalfFov: Math.tan(camera.fovY / 2),
-      spin: params.spin,
-      maxSteps: params.maxSteps,
-      diskInner: riscoOf(params.spin, params.diskSense),
-      diskOuter: params.diskOuter,
-      diskGain: params.diskGain,
-      beaming: params.beaming,
-      diskOn: params.diskOn,
-      sense: params.diskSense,
-      diskNormal: [si, 0, ci],
-      diskE1: [ci, 0, -si],
-      diskE2: [0, 1, 0],
-      time: (performance.now() / 1000) % 1800,
-      skyShift: params.skyShift,
-      tetrad: tetrad.map((e): [number, number, number, number] => [e[1], e[2], e[3], e[0]]),
-    });
+    session = await createHqSession(hqCanvas, w, h, buildHqState());
+    // Test hook: the parity e2e reads the accumulation buffer directly
+    // (headless presentation can be blank while compute is fine).
+    (window as unknown as { __bhHq?: HqSession }).__bhHq = session;
     const tick = (): void => {
       if (stopped || !session) return;
+      // Test hook: freezing stops further dispatches so a readback cannot
+      // race in-flight submissions (a Dawn/SwiftShader mapAsync pitfall).
+      if ((window as unknown as { __bhHqFreeze?: boolean }).__bhHqFreeze) {
+        status.textContent = `frozen at ${session.samples()} samples (test hook)`;
+        return;
+      }
       if (session.samples() < HQ_SAMPLES) {
         session.step();
         status.textContent = `accumulating: ${session.samples()} / ${HQ_SAMPLES} samples`;
@@ -483,6 +513,7 @@ declare global {
       freefall: FreeFall;
       release: () => void;
       risco: (a: number, sense: 1 | -1) => number;
+      hqParity: (w: number, h: number, samples: number) => Promise<number[]>;
       /** Diagnostic: q_t of the central pixel's traced ray (g* = 1/q_t). */
       centerQt: () => number;
     };
@@ -495,6 +526,7 @@ window.__bh = {
   freefall,
   release: releaseCamera,
   risco: riscoOf,
+  hqParity,
   centerQt: (): number => {
     const b = camera.basis();
     const u4: Vec4 = freefall.active ? freefall.fourVelocity() : staticObserver(b.pos, params.spin);

@@ -146,6 +146,11 @@ function darkFrac(png, x, y, r) {
       !results.validity_ok || !results.back_to_kerr_ok
     )
       process.exitCode = 1;
+  } catch (err) {
+    // Without this, a throw inside try is masked by process.exit() in
+    // finally and the script dies silently with code 0.
+    console.error("TEST ERROR:", err);
+    process.exitCode = 1;
   } finally {
     await browser.close();
     server.kill();

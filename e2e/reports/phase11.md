@@ -1,37 +1,52 @@
 # Phase 11 Test Report — WebGPU Progressive Renderer
 
-**Script:** `e2e/phase11.cjs` · **Runtime:** 16.1 s · **Result: PASS**
-(with the pixel-parity check honestly SKIPPED in this environment — see
-below)
+**Script:** `e2e/phase11.cjs` · **Runtime:** 17.5 s · **Result: PASS**
+(all checks executed, including live pixel parity — no skips)
 
 ## What was done
 
-1. **WGSL validity:** `src/shaders/hq.wgsl` parses (wgsl_reflect), exports
-   the `trace` compute entry point with exactly the two expected storage
-   bindings (flat parameter array + accumulation buffer).
-2. **Constant parity, enforced:** the physics-defining constants —
-   capture-buffer scaling `0.02 * sqrt`, momentum threshold `1e8`,
-   FD epsilon `2e-3`, adaptive step `0.1 * min(r - 0.9`, star cells
-   `400.0`, star density `0.04`, emissivity normalization `36.0 / 49.0`,
-   noise modulation `0.55 + 0.9`, and the disk-pattern `6.2831853` — must
-   appear verbatim in **both** the GLSL and the WGSL. This mechanizes the
-   "line-parallel structure" guarantee against silent drift between the
-   two ports.
-3. **Fallback and honest capability detection:** this container's
-   Chromium exposes `navigator.gpu` on secure origins but returns **no
-   adapter** (verified by direct probing; custom `--enable-unsafe-webgpu`
-   flag combinations remove `navigator.gpu` entirely). The app now probes
-   the adapter asynchronously and downgrades the HQ button to
-   disabled + "WebGPU unavailable" — which is exactly what the test
-   observes — while the WebGL2 renderer runs untouched.
-4. **Pixel parity: SKIPPED (gpu-no-adapter).** The live comparison
-   (4+ samples of the HQ accumulation vs the WebGL2 frame at identical
-   static parameters — disk off so the time-advected noise cannot differ,
-   bloom 0, full resolution, mean |diff| < 20) is implemented in the test
-   and executes automatically in any WebGPU-capable browser. It **cannot
-   execute in this container** — no software WebGPU adapter exists in the
-   bundled Chromium — and the test reports the skip explicitly rather
-   than passing vacuously or failing spuriously.
+Chromium is launched with `--enable-unsafe-webgpu
+--use-webgpu-adapter=swiftshader`, giving a full **software WebGPU
+adapter + device** in this container (numerically identical to hardware,
+slower). An earlier conclusion that WebGPU was unavailable here was wrong —
+the probes had evaluated on `about:blank`, where `navigator.gpu` is hidden
+outside secure contexts; on the served page the SwiftShader adapter works.
+
+1. **WGSL validity:** `hq.wgsl` parses (wgsl_reflect), exports the `trace`
+   compute entry point with exactly the two expected storage bindings.
+2. **Constant parity, enforced:** the physics-defining constants
+   (capture-buffer scaling, |p|² threshold, FD ε, step clamp, star cells,
+   density, emissivity normalization, noise modulation, 2π) must appear
+   verbatim in both the GLSL and WGSL ports.
+3. **Capability handling:** with an adapter the HQ button is enabled; the
+   gpu-without-adapter downgrade path (async probe → disabled button with
+   label) was exercised in the pre-flag run of this suite.
+4. **Full UI flow, executed:** HQ modal opens, samples accumulate live
+   (status counter), **Save PNG fires a download** (`kerr-hq-a0.600.png`),
+   Close destroys the session.
+5. **Numerical pixel parity, executed:** a compute-only session (see
+   below) renders the identical scene state (shared state-builder) at
+   matched sampling and is compared to the WebGL2 frame:
+   **8×8 block-mean difference 3.56/255** (raw per-pixel 17.6, residual
+   sub-pixel star-edge offsets from the jitter-y 0.33 vs 0.5). The two
+   independent ports of the full Kerr physics agree.
+
+## Environment quirks found and handled (in the product, not the test)
+
+- **Headless SwiftShader breaks `mapAsync` once a canvas context is
+  configured on the device** (minimal repro in the transcript). The
+  session therefore supports a compute-only mode (`canvas = null`) used
+  for readback-based parity; presentation is unaffected in real browsers.
+- **Chromium invalidates the wire instance backing `mapAsync` callbacks if
+  the last `GPUAdapter` reference is garbage-collected**; sessions retain
+  their adapter for their lifetime (a bare `void adapter` gets
+  tree-shaken — a module-level retention set does not).
+- Multi-sample accumulation legitimately brightens post-tonemap means
+  (linear-radiance averaging before a compressive tonemap spreads star
+  flux into more, less-compressed pixels): mean 49.9 vs 31.6 at 8 samples.
+  This is correct behavior, so parity compares at matched (single-sample)
+  sampling; the multi-sample brightening was verified to be the only
+  difference.
 
 ## Results
 
@@ -39,17 +54,11 @@ below)
 |---|---|---|
 | WGSL parses, entry `trace`, 2 storage bindings | yes | ✓ |
 | Constant parity misses | none | ✓ |
-| Adapter state | gpu-no-adapter | (environment) |
-| HQ button state | disabled, "(WebGPU unavailable)" | ✓ |
-| WebGL2 fallback renders | mean lum > 2 | ✓ |
-| Pixel parity | SKIPPED (documented; auto-runs on real hardware) | — |
+| Adapter state | adapter (SwiftShader) | ✓ |
+| HQ button | enabled | ✓ |
+| Modal flow + Save PNG download | kerr-hq-a0.600.png | ✓ |
+| Block-mean parity (matched sampling) | 3.56/255 (< 10) | ✓ |
+| WebGL2 fallback renders | yes | ✓ |
 
-## Honest limitations
-
-The WebGPU path's *runtime* behavior (device creation, pipeline setup,
-accumulation loop, PNG export) has not been executed end-to-end in this
-environment and should be exercised once in a WebGPU-capable browser
-(Chrome/Edge on a machine with a GPU); the pixel-parity harness will run
-automatically there. Everything statically verifiable — WGSL syntax,
-entry-point/binding shape, physics-constant parity with the validated
-GLSL, capability detection, fallback — is verified here.
+Artifacts: `phase11-hq-readback.png` (the WebGPU-computed image — same
+shadow, same lensed starfield as the WebGL2 frame).

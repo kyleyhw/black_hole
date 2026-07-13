@@ -62,6 +62,11 @@ const { startPreview, launchPage, settleFrames, decodePng, stats, diffFrac } = r
     results.runtime_s = (Date.now() - t0) / 1000;
     console.log(JSON.stringify(results, null, 2));
     if (!results.starfield_ok || !results.camera_ok) process.exitCode = 1;
+  } catch (err) {
+    // Without this, a throw inside try is masked by process.exit() in
+    // finally and the script dies silently with code 0.
+    console.error("TEST ERROR:", err);
+    process.exitCode = 1;
   } finally {
     await browser.close();
     server.kill();

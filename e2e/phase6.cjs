@@ -38,7 +38,9 @@ const { startPreview, launchPage, settleFrames, decodePng, stats, diffFrac } = r
       fps: !!document.getElementById("fps"),
       footer: !!document.getElementById("footer"),
       sliders: document.querySelectorAll("#panel input[type=range]").length,
-      presets: document.querySelectorAll("#panel button.preset").length,
+      // Named-button check: a raw count breaks every time a phase adds a
+      // button (HQ, free-fall Release, multi-mass +/-).
+      buttons: [...document.querySelectorAll("#panel button.preset")].map((b) => b.textContent),
     }));
     // --- 2. Preset + slider drive params (before hiding the chrome) ---
     await page.click("#panel button.preset:nth-of-type(3)"); // Near-extremal
@@ -101,11 +103,13 @@ const { startPreview, launchPage, settleFrames, decodePng, stats, diffFrac } = r
     await settleFrames(page, 4);
     const lowRes = stats(decodePng(await page.screenshot()));
 
-    // --- 6. Screenshot button (clicked via JS: the panel is display:none) ---
-    const downloadP = page.waitForEvent("download", { timeout: 15000 });
+    // --- 6. Screenshot button (clicked via JS: the panel is display:none;
+    // selected by text — position-based selection broke when the HQ button
+    // joined the panel) ---
+    const downloadP = page.waitForEvent("download", { timeout: 30000 });
     await page.evaluate(() => {
-      const buttons = document.querySelectorAll("#panel button.preset");
-      buttons[buttons.length - 1].click();
+      const buttons = [...document.querySelectorAll("#panel button.preset")];
+      buttons.find((b) => b.textContent.includes("Screenshot")).click();
     });
     const download = await downloadP;
     const dlName = download.suggestedFilename();
@@ -113,7 +117,10 @@ const { startPreview, launchPage, settleFrames, decodePng, stats, diffFrac } = r
     const results = {
       chrome,
       chrome_ok:
-        chrome.panel && chrome.fps && chrome.footer && chrome.sliders >= 6 && chrome.presets === 5,
+        chrome.panel && chrome.fps && chrome.footer && chrome.sliders >= 6 &&
+        ["Schwarzschild", "Interstellar", "Near-extremal", "Screenshot", "HQ still"].every(
+          (name) => chrome.buttons.some((t) => t.includes(name)),
+        ),
       base_meanLum: baseStats.meanLum,
       renders_ok: baseStats.meanLum > 2,
       preset_spin: afterPreset.spin,
@@ -134,6 +141,11 @@ const { startPreview, launchPage, settleFrames, decodePng, stats, diffFrac } = r
       results.chrome_ok && results.renders_ok && results.preset_ok && results.slider_ok &&
       results.overlays_ok && results.bloom_ok && results.lowres_ok && results.download_ok;
     if (!ok) process.exitCode = 1;
+  } catch (err) {
+    // Without this, a throw inside try is masked by process.exit() in
+    // finally and the script dies silently with code 0.
+    console.error("TEST ERROR:", err);
+    process.exitCode = 1;
   } finally {
     await browser.close();
     server.kill();
