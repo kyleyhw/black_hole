@@ -1,10 +1,11 @@
 # Validation Suite Report
 
-**Command:** `uv run python run_validation.py` · **Total runtime:** 16.5 s
-(convergence 9.8 s, b_crit 1.1 s,
-photon shell 5.2 s, drift 0.3 s)
+**Command:** `uv run python run_validation.py` · **Total runtime:** 30.1 s
+(convergence 15.9 s, b_crit 1.7 s,
+photon shell 8.5 s, drift 0.6 s,
+plunge 3.3 s)
 
-**Result: PASS** — 8/8 checks.
+**Result: PASS** — 9/9 checks.
 
 The suite mirrors the shader's exact algorithm (Hamiltonian, RK4,
 central-difference gradients, adaptive step, termination) in float64
@@ -81,6 +82,21 @@ Near-critical: max |H| = 1.59e-05, max L_z drift =
 3.43e-06 over 703 steps
 (min r = 1.618 M).**
 
+## 5. Free fall vs the cycloid (`plots/freefall_cycloid.png`)
+
+**What/why:** the Phase 8 free-fall camera integrates a *timelike* geodesic
+with the same Hamiltonian machinery (H = -1/2, affine parameter = proper
+time). Radial infall from rest in Schwarzschild has the closed-form cycloid
+solution r = (r0/2)(1+cos eta), tau = sqrt(r0^3/8M)(eta + sin eta), making
+it the clean end-to-end test of the timelike branch, including the
+non-obvious Kerr-Schild initial condition p_i = f l_i / sqrt(1-f) != 0 for
+an observer at rest.
+
+**Reading the plot:** top panel, integrated r(tau) over the analytic
+cycloid (dashed) — they must be indistinguishable; bottom panel, relative
+error on a log scale.
+**Max relative error: 7.08e-10 over 44711 steps from r0 = 12 M.**
+
 ## Checks
 
 | Check | Status |
@@ -93,6 +109,7 @@ Near-critical: max |H| = 1.59e-05, max L_z drift =
 | generic-ray L_z drift < 1e-5 | ✓ |
 | near-critical max |H| < 1e-4 | ✓ |
 | near-critical L_z drift < 1e-4 | ✓ |
+| free-fall vs cycloid rel err < 1e-8 | ✓ |
 
 ## Failure handling
 

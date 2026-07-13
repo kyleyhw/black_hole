@@ -18,6 +18,7 @@ export interface PanelParams {
   bloomStrength: number;
   ergoOn: boolean;
   photonOn: boolean;
+  skyShift: boolean; // starfield redshift/beaming for the camera frame
 }
 
 /** GM_sun / c^2 in kilometres — converts lengths in M to km. */
@@ -136,6 +137,7 @@ export function buildPanel(
   params: PanelParams,
   camera: OrbitCamera,
   onScreenshot: () => void,
+  onRelease: () => void,
 ): void {
   const panel = el("div", { id: "panel" });
   const refreshers: (() => void)[] = [];
@@ -206,6 +208,16 @@ export function buildPanel(
     fmt: (v) => v.toFixed(2),
   }));
 
+  // --- Camera ---
+  const cam = section("Camera", false);
+  const rel = el("button", { class: "preset" }, "Release camera (free-fall)");
+  rel.title =
+    "Drop the camera onto a timelike geodesic from rest (valid outside the " +
+    "ergosphere — the orbit camera always is). Double-click to reset.";
+  rel.addEventListener("click", onRelease);
+  cam.body.append(rel);
+  add(cam.body, toggle("sky redshift", () => params.skyShift, (v) => (params.skyShift = v)));
+
   // --- Overlays ---
   const ov = section("Overlays", false);
   add(ov.body, toggle("ergosphere", () => params.ergoOn, (v) => (params.ergoOn = v)));
@@ -234,7 +246,7 @@ export function buildPanel(
   shot.addEventListener("click", onScreenshot);
   pr.body.append(shot);
 
-  panel.append(bh.root, disk.root, q.root, ov.root, pr.root);
+  panel.append(bh.root, disk.root, cam.root, q.root, ov.root, pr.root);
   document.body.append(panel);
 
   // Live physics readouts, updated on every frame from the render loop.

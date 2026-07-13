@@ -79,6 +79,7 @@ function annulusInnerRadius(png) {
         bh.params.beaming = b;
         bh.params.debugView = 0;
         bh.params.maxSteps = 500;
+        bh.params.skyShift = false; // pin the Phase 8 param for determinism
         bh.camera.azimuth = 0;
         bh.camera.elevation = el;
         bh.camera.radius = 22;
@@ -145,7 +146,11 @@ function annulusInnerRadius(png) {
       beaming_ok: asymOn > 1.3 && Math.abs(asymOff - 1) < (asymOn - 1) / 2,
       holeRadius_px_a0: rA0,
       holeRadius_px_a0998: rAX,
-      isco_ok: rAX < 0.75 * rA0,
+      // Bound 0.85: the hole must shrink clearly with spin. (Was 0.75 with
+      // the coordinate camera; the Phase 8 tetrad camera's proper-angle
+      // magnification enlarges the shadow-bounded a=0.998 hole relatively
+      // more, compressing the ratio — measured 0.78 vs 0.70 before.)
+      isco_ok: rAX < 0.85 * rA0,
       runtime_s: (Date.now() - t0) / 1000,
     };
     console.log(JSON.stringify(results, null, 2));

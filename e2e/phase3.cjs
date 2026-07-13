@@ -5,17 +5,13 @@
 //
 // Checks:
 //   1. Schwarzschild shadow size (a=0): captured-pixel disk radius in the
-//      "final r" debug view vs the analytic prediction FOR THIS CAMERA MODEL.
-//      The Phase 3 camera assigns pixel directions as unit *coordinate*
-//      covectors (blueprint spec), not local-frame directions, so the
-//      textbook sin(theta)=(3sqrt3 M/r0)sqrt(1-2M/r0) does not apply
-//      directly (it predicts 44.1 px here). Instead the shadow edge alpha
-//      solves b(alpha) = r0 sin(alpha) / q_t(alpha) = 3*sqrt(3) M with
-//      q_t(alpha) = (-f cos(alpha) + sqrt(1 + f sin^2(alpha))) / (1+f),
-//      f = 2M/r0 — the conserved impact parameter of a ray whose coordinate
-//      covector makes angle alpha with the inward axis (derivations.md §4).
-//      The local-frame formula becomes the right prediction after the
-//      Phase 8 tetrad camera refactor. Tolerance 3%.
+//      "final r" debug view vs the analytic prediction. Since the Phase 8
+//      tetrad camera, pixel directions are proper local-frame angles, so
+//      the textbook formula applies directly:
+//      sin(theta) = (3*sqrt(3) M/r0) sqrt(1 - 2M/r0)  ->  44.09 px here.
+//      (Phases 3-7 used a coordinate-covector camera; its distinct
+//      prediction, 37.27 px, is derived in derivations.md §4 and was
+//      verified to 0.13% at the time. Tolerance 3%.)
 //   2. |H| drift view (a=0.9): the red fraction (drift > ~1e-2) must be
 //      small — bounded integration error over the visible field.
 //   3. Kerr asymmetry (a=0.998, equatorial camera): the shadow centroid
@@ -89,21 +85,7 @@ function maskStats(mask, w, h) {
 
     const r0 = 18;
     const fovY = (60 * Math.PI) / 180;
-    // Impact parameter of the coordinate-covector ray at angle alpha from
-    // the inward axis; monotonic in alpha, so bisect for b = 3*sqrt(3).
-    const f = 2 / r0;
-    const bOf = (al) => {
-      const qt = (-f * Math.cos(al) + Math.sqrt(1 + f * Math.sin(al) ** 2)) / (1 + f);
-      return (r0 * Math.sin(al)) / qt;
-    };
-    let lo = 0.01;
-    let hi = 0.6;
-    for (let i = 0; i < 60; i++) {
-      const mid = (lo + hi) / 2;
-      if (bOf(mid) < 3 * Math.sqrt(3)) lo = mid;
-      else hi = mid;
-    }
-    const alphaEdge = (lo + hi) / 2;
+    const alphaEdge = Math.asin(((3 * Math.sqrt(3)) / r0) * Math.sqrt(1 - 2 / r0));
     const predictedRadius = (pngA0.height / 2) * (Math.tan(alphaEdge) / Math.tan(fovY / 2));
     const shadowErr = Math.abs(measuredRadius - predictedRadius) / predictedRadius;
 

@@ -70,46 +70,50 @@ def initial_pt(x: Vec3, p: Vec3, a: float) -> float:
     return (f * s + math.sqrt(max(disc, 0.0))) / (1.0 + f)
 
 
-def rhs(x: Vec3, p: Vec3, a: float) -> tuple[Vec3, Vec3]:
-    """Hamilton's equations with p_t = 1: analytic dx, central-difference dp."""
+def rhs(x: Vec3, p: Vec3, a: float, pt: float = 1.0) -> tuple[Vec3, Vec3]:
+    """Hamilton's equations with constant p_t (conserved): analytic dx,
+    central-difference dp. Null rays carry pt = 1; timelike worldlines carry
+    the pt fixed by their initial conditions."""
     f, l = metric_terms(x, a)
-    lp = l[0] * p[0] + l[1] * p[1] + l[2] * p[2] - 1.0
+    lp = l[0] * p[0] + l[1] * p[1] + l[2] * p[2] - pt
     dx = (p[0] - f * lp * l[0], p[1] - f * lp * l[1], p[2] - f * lp * l[2])
 
     eps = FD_EPS_SCALE * max(ks_radius(x, a), 1.0)
     inv2e = 0.5 / eps
     dp = (
         -(
-            hamiltonian((x[0] + eps, x[1], x[2]), p, 1.0, a)
-            - hamiltonian((x[0] - eps, x[1], x[2]), p, 1.0, a)
+            hamiltonian((x[0] + eps, x[1], x[2]), p, pt, a)
+            - hamiltonian((x[0] - eps, x[1], x[2]), p, pt, a)
         )
         * inv2e,
         -(
-            hamiltonian((x[0], x[1] + eps, x[2]), p, 1.0, a)
-            - hamiltonian((x[0], x[1] - eps, x[2]), p, 1.0, a)
+            hamiltonian((x[0], x[1] + eps, x[2]), p, pt, a)
+            - hamiltonian((x[0], x[1] - eps, x[2]), p, pt, a)
         )
         * inv2e,
         -(
-            hamiltonian((x[0], x[1], x[2] + eps), p, 1.0, a)
-            - hamiltonian((x[0], x[1], x[2] - eps), p, 1.0, a)
+            hamiltonian((x[0], x[1], x[2] + eps), p, pt, a)
+            - hamiltonian((x[0], x[1], x[2] - eps), p, pt, a)
         )
         * inv2e,
     )
     return dx, dp
 
 
-def rk4_step(x: Vec3, p: Vec3, h: float, a: float) -> tuple[Vec3, Vec3]:
+def rk4_step(
+    x: Vec3, p: Vec3, h: float, a: float, pt: float = 1.0
+) -> tuple[Vec3, Vec3]:
     """One classical RK4 step of Hamilton's equations."""
-    k1x, k1p = rhs(x, p, a)
+    k1x, k1p = rhs(x, p, a, pt)
     x2 = (x[0] + 0.5 * h * k1x[0], x[1] + 0.5 * h * k1x[1], x[2] + 0.5 * h * k1x[2])
     p2 = (p[0] + 0.5 * h * k1p[0], p[1] + 0.5 * h * k1p[1], p[2] + 0.5 * h * k1p[2])
-    k2x, k2p = rhs(x2, p2, a)
+    k2x, k2p = rhs(x2, p2, a, pt)
     x3 = (x[0] + 0.5 * h * k2x[0], x[1] + 0.5 * h * k2x[1], x[2] + 0.5 * h * k2x[2])
     p3 = (p[0] + 0.5 * h * k2p[0], p[1] + 0.5 * h * k2p[1], p[2] + 0.5 * h * k2p[2])
-    k3x, k3p = rhs(x3, p3, a)
+    k3x, k3p = rhs(x3, p3, a, pt)
     x4 = (x[0] + h * k3x[0], x[1] + h * k3x[1], x[2] + h * k3x[2])
     p4 = (p[0] + h * k3p[0], p[1] + h * k3p[1], p[2] + h * k3p[2])
-    k4x, k4p = rhs(x4, p4, a)
+    k4x, k4p = rhs(x4, p4, a, pt)
     c = h / 6.0
     xn = (
         x[0] + c * (k1x[0] + 2.0 * k2x[0] + 2.0 * k3x[0] + k4x[0]),

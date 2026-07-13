@@ -2,6 +2,8 @@ import { getGL, createProgram, uniforms } from "./gl";
 import { OrbitCamera } from "./camera";
 import { riscoOf } from "./physics";
 import { buildPanel, type PanelParams } from "./panel";
+import { buildTetrad, staticObserver, metricTerms as metricTermsPublic, type Vec4 } from "./tetrad";
+import { FreeFall } from "./geodesic";
 import vertSrc from "./shaders/fullscreen.vert.glsl?raw";
 import sceneSrc from "./shaders/render.frag.glsl?raw";
 import blurSrc from "./shaders/blur.frag.glsl?raw";
@@ -22,6 +24,7 @@ const params: PanelParams = {
   bloomStrength: 0.55,
   ergoOn: false,
   photonOn: false,
+  skyShift: true,
 };
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -40,6 +43,7 @@ const uScene = uniforms(gl, sceneProg, [
   "uResolution", "uCamPos", "uCamRight", "uCamUp", "uCamForward", "uTanHalfFov",
   "uSpin", "uMaxSteps", "uDebugView",
   "uDiskOn", "uDiskInner", "uDiskOuter", "uBeaming", "uDiskGain", "uTime",
+  "uE0", "uE1", "uE2", "uE3", "uSkyShift",
 ]);
 const uBlur = uniforms(gl, blurProg, ["uTex", "uTexelSize", "uDir", "uThreshold"]);
 const uComp = uniforms(gl, compositeProg, [
@@ -106,6 +110,7 @@ function ensureTargets(): void {
 
 const camera = new OrbitCamera();
 camera.attach(canvas);
+const freefall = new FreeFall();
 
 let lastT = performance.now();
 let fpsEma = 0;
@@ -116,10 +121,27 @@ function frame(now: number): void {
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
   camera.update(dt);
+  // Free-fall mode: the camera worldline is a timelike geodesic integrated
+  // on the CPU; the orbit camera's angles track the falling position so the
+  // view keeps facing the hole. On plunge termination, reset to orbit.
+  if (freefall.active) {
+    const alive = freefall.update(dt);
+    const [px, py, pz] = freefall.position();
+    camera.radius = Math.hypot(px, py, pz);
+    camera.azimuth = Math.atan2(py, px);
+    camera.elevation = Math.asin(pz / Math.max(camera.radius, 1e-9));
+    if (!alive) camera.reset();
+  }
   ensureTargets();
   if (!scene || !bloomA || !bloomB) return;
 
   const b = camera.basis();
+  // Camera tetrad: static observer when orbiting, the integrated 4-velocity
+  // when free-falling (aberration and Doppler come from e0 automatically).
+  const u4: Vec4 = freefall.active ? freefall.fourVelocity() : staticObserver(b.pos, params.spin);
+  const tetrad = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
+  // Shader packing: vec4 = (xyz spatial, w = t).
+  const packLeg = (e: Vec4): [number, number, number, number] => [e[1], e[2], e[3], e[0]];
   const setCam = (u: Map<string, WebGLUniformLocation | null>): void => {
     gl.uniform3f(u.get("uCamPos") ?? null, ...b.pos);
     gl.uniform3f(u.get("uCamRight") ?? null, ...b.right);
@@ -144,6 +166,11 @@ function frame(now: number): void {
   gl.uniform1f(uScene.get("uDiskGain") ?? null, params.diskGain);
   // Wrap scene time at 30 min to keep f32 precision in the noise advection.
   gl.uniform1f(uScene.get("uTime") ?? null, (now / 1000) % 1800);
+  gl.uniform4f(uScene.get("uE0") ?? null, ...packLeg(tetrad[0]));
+  gl.uniform4f(uScene.get("uE1") ?? null, ...packLeg(tetrad[1]));
+  gl.uniform4f(uScene.get("uE2") ?? null, ...packLeg(tetrad[2]));
+  gl.uniform4f(uScene.get("uE3") ?? null, ...packLeg(tetrad[3]));
+  gl.uniform1i(uScene.get("uSkyShift") ?? null, params.skyShift ? 1 : 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   // --- 2. Bloom: bright-pass horizontal blur, then vertical ---
@@ -211,7 +238,12 @@ function screenshot(): void {
   });
 }
 
-buildPanel(params, camera, screenshot);
+function releaseCamera(): void {
+  if (freefall.active) return;
+  freefall.release(camera.basis().pos, params.spin);
+}
+
+buildPanel(params, camera, screenshot, releaseCamera);
 
 const about = document.getElementById("about") as HTMLDivElement;
 (document.getElementById("aboutLink") as HTMLAnchorElement).addEventListener("click", () =>
@@ -234,7 +266,27 @@ declare global {
       camera: OrbitCamera;
       params: PanelParams;
       gl: WebGL2RenderingContext;
+      freefall: FreeFall;
+      release: () => void;
+      /** Diagnostic: q_t of the central pixel's traced ray (g* = 1/q_t). */
+      centerQt: () => number;
     };
   }
 }
-window.__bh = { camera, params, gl };
+window.__bh = {
+  camera,
+  params,
+  gl,
+  freefall,
+  release: releaseCamera,
+  centerQt: (): number => {
+    const b = camera.basis();
+    const u4: Vec4 = freefall.active ? freefall.fourVelocity() : staticObserver(b.pos, params.spin);
+    const [e0, , , e3] = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
+    // Central pixel: nloc = (0, 0, 1) -> q = -e0 + e3; lower with g.
+    const q: Vec4 = [e3[0] - e0[0], e3[1] - e0[1], e3[2] - e0[2], e3[3] - e0[3]];
+    const m = metricTermsPublic(b.pos, params.spin);
+    const lq = q[0] + m.l[0] * q[1] + m.l[1] * q[2] + m.l[2] * q[3];
+    return -q[0] + m.f * lq;
+  },
+};

@@ -31,6 +31,11 @@ uniform float uDiskOuter;    // outer edge (M)
 uniform int uBeaming;        // g^4 relativistic beaming toggle
 uniform float uDiskGain;     // emission exposure multiplier
 uniform float uTime;         // scene time (s) for differential rotation
+uniform vec4 uE0;            // camera tetrad legs (contravariant): xyz spatial,
+uniform vec4 uE1;            // w = t component. e0 = camera 4-velocity,
+uniform vec4 uE2;            // e1/e2/e3 = right/up/forward (derivations.md §8)
+uniform vec4 uE3;
+uniform int uSkyShift;       // apply g* = 1/q_t redshift to the starfield
 
 const float R_ESCAPE = 200.0;  // escape radius (M); camera max is 60 M
 const int HARD_CAP = 1024;     // absolute loop bound (driver-safe)
@@ -74,46 +79,39 @@ float hamiltonian(vec3 x, vec3 p, float pt, float a) {
 // ============================================================================
 
 // dx/dlambda = dH/dp (analytic); dp/dlambda = -dH/dx (central differences).
-// The traced ray carries p_t = 1 (past-directed root normalized so the
-// physical photon has E = 1; see §4).
-void rhs(vec3 x, vec3 p, float a, out vec3 dx, out vec3 dp) {
+// pt is the ray's conserved p_t, fixed by the tetrad initialization (§8);
+// it varies across pixels but is constant along each ray.
+void rhs(vec3 x, vec3 p, float pt, float a, out vec3 dx, out vec3 dp) {
   float f;
   vec3 l;
   metricTerms(x, a, f, l);
-  float lp = dot(l, p) - 1.0;
+  float lp = dot(l, p) - pt;
   dx = p - f * lp * l;
 
   // eps = 2e-3 max(r,1): optimal-order central-difference step for f32 (§5).
   float eps = 2e-3 * max(ksRadius(x, a), 1.0);
   float inv2e = 0.5 / eps;
   dp = -vec3(
-      (hamiltonian(x + vec3(eps, 0, 0), p, 1.0, a) - hamiltonian(x - vec3(eps, 0, 0), p, 1.0, a)),
-      (hamiltonian(x + vec3(0, eps, 0), p, 1.0, a) - hamiltonian(x - vec3(0, eps, 0), p, 1.0, a)),
-      (hamiltonian(x + vec3(0, 0, eps), p, 1.0, a) - hamiltonian(x - vec3(0, 0, eps), p, 1.0, a))) *
+      (hamiltonian(x + vec3(eps, 0, 0), p, pt, a) - hamiltonian(x - vec3(eps, 0, 0), p, pt, a)),
+      (hamiltonian(x + vec3(0, eps, 0), p, pt, a) - hamiltonian(x - vec3(0, eps, 0), p, pt, a)),
+      (hamiltonian(x + vec3(0, 0, eps), p, pt, a) - hamiltonian(x - vec3(0, 0, eps), p, pt, a))) *
       inv2e;
 }
 
-void rk4Step(inout vec3 x, inout vec3 p, float h, float a) {
+void rk4Step(inout vec3 x, inout vec3 p, float h, float pt, float a) {
   vec3 k1x, k1p, k2x, k2p, k3x, k3p, k4x, k4p;
-  rhs(x, p, a, k1x, k1p);
-  rhs(x + 0.5 * h * k1x, p + 0.5 * h * k1p, a, k2x, k2p);
-  rhs(x + 0.5 * h * k2x, p + 0.5 * h * k2p, a, k3x, k3p);
-  rhs(x + h * k3x, p + h * k3p, a, k4x, k4p);
+  rhs(x, p, pt, a, k1x, k1p);
+  rhs(x + 0.5 * h * k1x, p + 0.5 * h * k1p, pt, a, k2x, k2p);
+  rhs(x + 0.5 * h * k2x, p + 0.5 * h * k2p, pt, a, k3x, k3p);
+  rhs(x + h * k3x, p + h * k3p, pt, a, k4x, k4p);
   x += (h / 6.0) * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
   p += (h / 6.0) * (k1p + 2.0 * k2p + 2.0 * k3p + k4p);
 }
 
-// Initial p_t: past-directed root of the null quadratic (§4),
-//   q_t = (f s + sqrt(D)) / (1+f),  D = (1+f)|p|^2 - f s^2 > 0 always.
-// The whole momentum is then rescaled by 1/q_t so p_t = 1 exactly.
-float initialPt(vec3 x, vec3 p, float a) {
-  float f;
-  vec3 l;
-  metricTerms(x, a, f, l);
-  float s = dot(l, p);
-  float D = (1.0 + f) * dot(p, p) - f * s * s;
-  return (f * s + sqrt(max(D, 0.0))) / (1.0 + f);
-}
+// Ray initialization now uses the camera tetrad (§8): the traced ray is
+// q^mu = -e0^mu + n^i e_i^mu, exactly null by orthonormality, normalized to
+// unit locally-measured energy. The §4 quadratic survives in the validation
+// suite as an independent cross-check of the same physics.
 
 // ============================================================================
 // SECTION: TERMINATION (§2.3 of PROJECT_PLAN)
@@ -207,10 +205,10 @@ vec3 diskColor(float t) {
 
 // Shade a disk hit at equatorial point xh with ray momentum ph.
 // Returns premultiplied-style (rgb, alpha) for front-to-back accumulation.
-vec4 diskShade(vec3 xh, vec3 ph, float r, float a) {
+vec4 diskShade(vec3 xh, vec3 ph, float pt, float r, float a) {
   // Redshift g = 1 / [u^t (1 - Omega lambda)]; lambda = L_z/E of the
-  // physical photon = -(x p_y - y p_x) for the traced ray (E = q_t = 1).
-  float lambda = -(xh.x * ph.y - xh.y * ph.x);
+  // physical photon = -(x p_y - y p_x)/q_t for the traced ray (E = q_t).
+  float lambda = -(xh.x * ph.y - xh.y * ph.x) / pt;
   float g = 1.0 / max(diskUt(r, a) * (1.0 - diskOmega(r, a) * lambda), 1e-3);
   g = min(g, 10.0);
 
@@ -273,7 +271,10 @@ vec3 starColor(float t) {
   return t < 0.5 ? mix(red, white, t * 2.0) : mix(white, blue, (t - 0.5) * 2.0);
 }
 
-vec3 starfield(vec3 dir) {
+// gstar = 1/q_t: frequency ratio observed/emitted for stars at infinity
+// (derivations.md §9). Temperature scales by gstar (blackbody shape is
+// preserved); bolometric brightness by gstar^4.
+vec3 starfield(vec3 dir, float gstar) {
   float face;
   vec2 uv;
   cubeProject(dir, face, uv);
@@ -295,7 +296,10 @@ vec3 starfield(vec3 dir) {
       float fall = 1.0 - smoothstep(0.0, radius, ang);
       // 0.3 keeps all but the brightest ~5% of stars below saturation, so
       // the sky reads as a backdrop rather than competing with the disk.
-      col += fall * b * 0.3 * starColor(hash13(seed + 41.0));
+      // Temperature parameter mapped to T_rel = 0.5 + t, shifted by gstar.
+      float tShift = clamp((0.5 + hash13(seed + 41.0)) * gstar - 0.5, 0.0, 1.0);
+      float beam4 = gstar * gstar * gstar * gstar;
+      col += fall * b * 0.3 * beam4 * starColor(tShift);
     }
   }
   return col;
@@ -327,9 +331,18 @@ void main() {
   // a fixed 1.02 r_+ would sit OUTSIDE r_ph = 1.077 and clip real physics.
   float rCapture = rH * (1.0 + 0.02 * sqrt(max(1.0 - a * a, 0.0))) + 1e-3;
 
-  // Ray state: x, spatial covector p, with p_t = 1 after normalization (§4).
+  // Ray from the camera tetrad (§8): local view direction nloc in the
+  // (right, up, forward) frame; traced ray q = -e0 + n^i e_i, lowered with
+  // the metric at the camera. q_t (the conserved p_t) now varies per pixel.
+  vec3 nloc = normalize(vec3(ndc.x * aspect * uTanHalfFov, ndc.y * uTanHalfFov, 1.0));
+  vec4 q4 = -uE0 + nloc.x * uE1 + nloc.y * uE2 + nloc.z * uE3;
+  float fCam;
+  vec3 lCam;
+  metricTerms(uCamPos, a, fCam, lCam);
+  float lq = q4.w + dot(lCam, q4.xyz);  // l_mu q^mu, l_t = 1
+  float pt = -q4.w + fCam * lq;         // q_t = g_{t nu} q^nu
   vec3 x = uCamPos;
-  vec3 p = dir / initialPt(uCamPos, dir, a);
+  vec3 p = q4.xyz + fCam * lq * lCam;   // q_i = g_{i nu} q^nu
 
   // Front-to-back transparent accumulation over disk crossings.
   vec3 accCol = vec3(0.0);
@@ -362,11 +375,11 @@ void main() {
     float f;
     vec3 l;
     metricTerms(x, a, f, l);
-    vec3 v = p - f * (dot(l, p) - 1.0) * l;  // dx/dlambda
+    vec3 v = p - f * (dot(l, p) - pt) * l;  // dx/dlambda
     float h = stepSize(r, rH, length(v));
     vec3 xPrev = x;
     vec3 pPrev = p;
-    rk4Step(x, p, h, a);
+    rk4Step(x, p, h, pt, a);
     steps++;
 
     // Disk plane crossing: sign change of z across the step. Bisect the
@@ -382,7 +395,7 @@ void main() {
         hh *= 0.5;
         vec3 xm = xa;
         vec3 pm = pa;
-        rk4Step(xm, pm, hh, a);
+        rk4Step(xm, pm, hh, pt, a);
         if (xa.z * xm.z >= 0.0) {  // crossing is in the second half
           xa = xm;
           pa = pm;
@@ -390,7 +403,7 @@ void main() {
       }
       vec3 xb = xa;
       vec3 pb = pa;
-      rk4Step(xb, pb, hh, a);
+      rk4Step(xb, pb, hh, pt, a);
       float denom = xa.z - xb.z;
       if (abs(denom) < 1e-12) denom = 1e-12;
       float tf = clamp(xa.z / denom, 0.0, 1.0);
@@ -400,7 +413,7 @@ void main() {
       float rh2 = xh.x * xh.x + xh.y * xh.y - a * a;
       float rHit = sqrt(max(rh2, 0.0));
       if (rHit > uDiskInner && rHit < uDiskOuter) {
-        vec4 d = diskShade(xh, ph, rHit, a);
+        vec4 d = diskShade(xh, ph, pt, rHit, a);
         accCol += (1.0 - accA) * d.a * d.rgb;
         accA += (1.0 - accA) * d.a;
       }
@@ -413,7 +426,7 @@ void main() {
     return;
   }
   if (uDebugView == 2) {  // |H| drift, log scale: 1e-7 (blue) .. 1e-1 (red)
-    float drift = abs(hamiltonian(x, p, 1.0, a));
+    float drift = abs(hamiltonian(x, p, pt, a));
     float t = (log(max(drift, 1e-9)) / log(10.0) + 7.0) / 6.0;
     fragColor = vec4(debugRamp(t), 1.0);
     return;
@@ -430,8 +443,9 @@ void main() {
     float f;
     vec3 l;
     metricTerms(x, a, f, l);
-    vec3 v = p - f * (dot(l, p) - 1.0) * l;
-    background = starfield(normalize(v));
+    vec3 v = p - f * (dot(l, p) - pt) * l;
+    float gstar = (uSkyShift == 1) ? 1.0 / max(pt, 1e-3) : 1.0;
+    background = starfield(normalize(v), gstar);
   }
   // Captured or budget-exceeded: black background behind any disk layers.
   fragColor = vec4(accCol + (1.0 - accA) * background, 1.0);

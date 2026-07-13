@@ -6,6 +6,7 @@ Studies (PROJECT_PLAN.md section 5):
   2. Schwarzschild critical impact parameter vs 3*sqrt(3) M.
   3. Kerr equatorial photon-orbit radii at a = 0.9 vs analytic r_ph.
   4. Conservation drift (E, L_z, H) along a strong-field ray.
+  5. Timelike free fall vs the Schwarzschild cycloid (Phase 8 camera).
 
 Run:  uv run python run_validation.py
 """
@@ -32,7 +33,9 @@ from kerr import (
     integrate,
     ks_radius,
     make_ray,
+    metric_terms,
     photon_orbit_radius,
+    rk4_step,
 )
 
 # Heterogeneous per-study results (floats, strings, nested dicts); the
@@ -304,6 +307,67 @@ def study_drift() -> StudyResult:
     return out
 
 
+# ----------------------------------------------------------------------------
+# Study 5: timelike free fall vs the Schwarzschild cycloid (Phase 8)
+# ----------------------------------------------------------------------------
+def study_plunge() -> StudyResult:
+    """Radial free fall from rest at r0 in Schwarzschild (a = 0), integrated
+    with the same Hamiltonian machinery on its timelike branch (H = -1/2,
+    affine parameter = proper time), against the analytic cycloid
+    r = (r0/2)(1 + cos eta), tau = sqrt(r0^3/8) (eta + sin eta).
+
+    At rest in Kerr-Schild coordinates the spatial *covector* momentum is
+    NOT zero -- p_i = g_{it} u^t = f l_i / sqrt(1 - f) -- because of the
+    off-diagonal metric; p_t = -sqrt(1 - f) is the conserved orbital energy
+    (derivations.md section 8)."""
+    r0 = 12.0
+    x: tuple[float, float, float] = (r0, 0.0, 0.0)
+    f0, l0 = metric_terms(x, 0.0)
+    pt = -math.sqrt(1.0 - f0)
+    scale = f0 / math.sqrt(1.0 - f0)
+    p: tuple[float, float, float] = (scale * l0[0], scale * l0[1], scale * l0[2])
+
+    h = 1e-3  # proper-time step (M); RK4 error ~ h^4 ~ 1e-12 per step
+    taus = [0.0]
+    rs = [r0]
+    tau = 0.0
+    while rs[-1] > 2.05 and tau < 200.0:
+        x, p = rk4_step(x, p, h, 0.0, pt)
+        tau += h
+        taus.append(tau)
+        rs.append(ks_radius(x, 0.0))
+    taus_arr = np.array(taus)
+    rs_arr = np.array(rs)
+
+    def r_analytic(tau_v: float) -> float:
+        lo, hi = 0.0, math.pi  # eta strictly increases with tau
+        for _ in range(80):
+            mid = 0.5 * (lo + hi)
+            if math.sqrt(r0**3 / 8.0) * (mid + math.sin(mid)) < tau_v:
+                lo = mid
+            else:
+                hi = mid
+        eta = 0.5 * (lo + hi)
+        return (r0 / 2.0) * (1.0 + math.cos(eta))
+
+    r_ana = np.array([r_analytic(t) for t in taus_arr])
+    rel_err = float(np.max(np.abs(rs_arr - r_ana) / r_ana))
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 5.5), sharex=True)
+    ax1.plot(taus_arr, rs_arr, label="integrated (timelike Hamiltonian)")
+    ax1.plot(taus_arr, r_ana, "k--", alpha=0.7, label="analytic cycloid")
+    ax1.set_ylabel("r (M)")
+    ax1.legend()
+    ax1.set_title(f"Radial free fall from rest, r0 = {r0:.0f} M (a = 0)")
+    ax2.semilogy(taus_arr, np.maximum(np.abs(rs_arr - r_ana) / r_ana, 1e-18))
+    ax2.set_ylabel("relative error")
+    ax2.set_xlabel(r"proper time $\tau$ (M)")
+    fig.tight_layout()
+    fig.savefig(PLOTS / "freefall_cycloid.png", dpi=150)
+    plt.close(fig)
+    return {"r0": r0, "steps": len(taus), "rel_err": rel_err}
+
+
 def main() -> None:
     PLOTS.mkdir(exist_ok=True)
     REPORTS.mkdir(exist_ok=True)
@@ -312,6 +376,7 @@ def main() -> None:
         ("bcrit", study_bcrit),
         ("photon_shell", study_photon_shell),
         ("drift", study_drift),
+        ("plunge", study_plunge),
     ]
     results: dict[str, StudyResult] = {}
     times: dict[str, float] = {}
@@ -341,6 +406,7 @@ def main() -> None:
             "max_Lz_drift"
         ]
         < 1e-4,
+        "free-fall vs cycloid rel err < 1e-8": results["plunge"]["rel_err"] < 1e-8,
     }
     for label, ok in checks.items():
         print(("PASS " if ok else "FAIL ") + label)
@@ -354,18 +420,20 @@ def write_report(
     times: dict[str, float],
     checks: dict[str, bool],
 ) -> None:
-    conv, bc, ph, dr = (
+    conv, bc, ph, dr, pl = (
         results["convergence"],
         results["bcrit"],
         results["photon_shell"],
         results["drift"],
+        results["plunge"],
     )
     total = sum(times.values())
     lines = f"""# Validation Suite Report
 
 **Command:** `uv run python run_validation.py` · **Total runtime:** {total:.1f} s
 (convergence {times["convergence"]:.1f} s, b_crit {times["bcrit"]:.1f} s,
-photon shell {times["photon_shell"]:.1f} s, drift {times["drift"]:.1f} s)
+photon shell {times["photon_shell"]:.1f} s, drift {times["drift"]:.1f} s,
+plunge {times["plunge"]:.1f} s)
 
 **Result: {"PASS" if all(checks.values()) else "FAIL"}** — {sum(checks.values())}/{len(checks)} checks.
 
@@ -443,6 +511,21 @@ and small*, not machine-level, which would be dynamically impossible.
 Near-critical: max |H| = {dr["near-critical"]["max_H"]:.2e}, max L_z drift =
 {dr["near-critical"]["max_Lz_drift"]:.2e} over {dr["near-critical"]["steps"]} steps
 (min r = {dr["near-critical"]["min_r"]:.3f} M).**
+
+## 5. Free fall vs the cycloid (`plots/freefall_cycloid.png`)
+
+**What/why:** the Phase 8 free-fall camera integrates a *timelike* geodesic
+with the same Hamiltonian machinery (H = -1/2, affine parameter = proper
+time). Radial infall from rest in Schwarzschild has the closed-form cycloid
+solution r = (r0/2)(1+cos eta), tau = sqrt(r0^3/8M)(eta + sin eta), making
+it the clean end-to-end test of the timelike branch, including the
+non-obvious Kerr-Schild initial condition p_i = f l_i / sqrt(1-f) != 0 for
+an observer at rest.
+
+**Reading the plot:** top panel, integrated r(tau) over the analytic
+cycloid (dashed) — they must be indistinguishable; bottom panel, relative
+error on a log scale.
+**Max relative error: {pl["rel_err"]:.2e} over {pl["steps"]} steps from r0 = {pl["r0"]:.0f} M.**
 
 ## Checks
 

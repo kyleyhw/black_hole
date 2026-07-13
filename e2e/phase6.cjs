@@ -113,7 +113,7 @@ const { startPreview, launchPage, settleFrames, decodePng, stats, diffFrac } = r
     const results = {
       chrome,
       chrome_ok:
-        chrome.panel && chrome.fps && chrome.footer && chrome.sliders >= 6 && chrome.presets === 4,
+        chrome.panel && chrome.fps && chrome.footer && chrome.sliders >= 6 && chrome.presets === 5,
       base_meanLum: baseStats.meanLum,
       renders_ok: baseStats.meanLum > 2,
       preset_spin: afterPreset.spin,

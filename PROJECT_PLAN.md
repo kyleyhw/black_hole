@@ -319,12 +319,12 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 8: Relativistic Camera Dynamics (§9.1, §9.2)
 
-38. [pending] Extend `docs/derivations.md`: tetrad construction via Gram–Schmidt under g, null ray initialization p = e_(0) + n^i e_(i), the timelike Hamiltonian branch (H = −½), release-from-rest condition u^t = 1/√(−g_tt) and its ergosphere boundary of validity, and the starfield shift g_★ = 1/E with its three limit checks. **Checkpoint**: derivations signed off before implementation, as in Phase 2.
-39. [pending] Refactor ray initialization to the camera-tetrad form (CPU Gram–Schmidt in TypeScript, tetrad as uniforms); regression-check static-camera renders against the retained p_t-quadratic path (agreement to numerical precision).
-40. [pending] CPU timelike geodesic integrator: TypeScript mirror of the shader Hamiltonian RHS and RK4; free-fall button (disabled inside the ergosphere, with tooltip), per-frame camera worldline update, plunge termination and reset at r ≤ 1.05 r_+.
-41. [pending] Redshifted starfield: per-pixel g_★ applied to star temperature (T_obs = g_★ T_em) and bolometric brightness (g_★⁴); verify the static-distant-camera limit g_★ → 1 leaves Phase 1 renders unchanged.
-42. [pending] Validation: a = 0 plunge r(τ) vs the analytic Schwarzschild cycloid; add plot + entry to the validation report.
-43. [pending] Commit; **checkpoint**: review free-fall behavior (azimuthal frame-dragging drift at a > 0) and sky-shift limits.
+38. [completed] Extend `docs/derivations.md` (§8–9): tetrad construction via Gram–Schmidt under g, arriving-photon initialization p = e_(0) − n^i e_(i) (traced ray q = −p; no quadratic, no root selection), the timelike Hamiltonian branch (H = −½) with the KS at-rest initial condition p_i = f l_i/√(1−f) ≠ 0, release-from-rest ergosphere restriction, cycloid validation target, and the starfield shift g_★ = 1/q_t with its three limit checks.
+39. [completed] Refactor ray initialization to the camera-tetrad form (CPU Gram–Schmidt in `src/tetrad.ts`, tetrad as uniforms; per-ray p_t threaded through the integrator, disk λ = L_z/E corrected to /q_t). Regression *as derived in §8*: pixel-identity with the old camera is the wrong check (different angle conventions); instead the rendered shadow must match the textbook local-frame formula — measured 44.094 px vs 44.091 px predicted (0.006%), where the coordinate camera correctly gave 37.27 px against its own prediction.
+40. [completed] CPU timelike geodesic integrator (`src/geodesic.ts`, f64 mirror of the shader RHS); free-fall Release button (ergosphere-restricted with tooltip; orbit clamp keeps the camera exterior), per-frame worldline update with proper-time substeps, plunge termination and reset at r ≤ 1.05 r_+.
+41. [completed] Redshifted starfield: per-pixel g_★ = 1/q_t applied to star temperature and g_★⁴ brightness, panel toggle; central-pixel q_t verified against √(1−2M/r₀) to 2×10⁻¹⁶; toggle changes 17.6% of pixels at r = 12 M.
+42. [completed] Validation: a = 0 plunge r(τ) vs the analytic Schwarzschild cycloid — max relative error 7×10⁻¹⁰ over 44,711 steps (`validation/plots/freefall_cycloid.png`); suite now 9/9.
+43. [completed] Commit; **checkpoint**: e2e `e2e/phase8.cjs` PASS (report: `e2e/reports/phase8.md`) — free-fall radius monotone 6 → 2.27 M with azimuthal frame-dragging drift 0.018 rad at a = 0.9, reset works; phases 3/5/6 regressions re-pass (phase3 now checks the local-frame formula).
 
 ## Phase 9: Disk Extensions — Retrograde Flow and Inclination (§9.3)
 
