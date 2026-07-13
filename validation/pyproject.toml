@@ -1,0 +1,27 @@
+[project]
+name = "validation"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.11.0",
+    "numpy>=2.4.6",
+]
+
+[dependency-groups]
+dev = [
+    "detect-secrets>=1.5.0",
+    "ruff>=0.15.21",
+    "ty>=0.0.59",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# E741 "ambiguous name l": l is the Kerr-Schild null covector l_mu, the
+# standard symbol in the literature and in the GLSL shader this module
+# mirrors line-for-line; renaming it would hurt cross-checking.
+"kerr.py" = ["E741"]
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.terminal]
+error-on-warning = true

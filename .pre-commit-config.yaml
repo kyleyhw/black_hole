@@ -6,5 +6,25 @@ repos:
         args: ["--baseline", ".secrets.baseline"]
         exclude: package-lock.json
 
-  # ruff / ty hooks join in Phase 4 when the Python validation suite
-  # introduces the uv-managed toolchain (PROJECT_PLAN.md task 18).
+  # ruff and ty run via uv so the versions come from validation/uv.lock
+  # rather than a separately pinned hook repo.
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: bash -c 'cd validation && uv run ruff check .'
+        language: system
+        files: ^validation/.*\.py$
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff format
+        entry: bash -c 'cd validation && uv run ruff format --check .'
+        language: system
+        files: ^validation/.*\.py$
+        pass_filenames: false
+      - id: ty
+        name: ty
+        entry: bash -c 'cd validation && uv run ty check .'
+        language: system
+        files: ^validation/.*\.py$
+        pass_filenames: false

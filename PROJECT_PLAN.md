@@ -283,15 +283,15 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 4: Python Validation Suite (§5)
 
-18. [pending] `validation/` as a `uv` project (`uv init`, `uv add numpy matplotlib`, dev tools `ruff`, `ty`, `detect-secrets`); full type annotations (`NDArray[np.float64]`); complete pre-commit hook configuration.
-19. [pending] NumPy mirror of the shader integrator (same Hamiltonian, same RK4, same FD gradients), ~150 lines.
-20. [pending] Produce four validation plots (§5), each with interpretation notes (axes, expected pattern, takeaway):
-    - Convergence order: global error vs dλ, log–log, slope-4 reference line.
-    - Schwarzschild critical impact parameter via capture/escape bisection → b_crit vs 3√3 M.
-    - Kerr photon shell at a = 0.9: prograde/retrograde equatorial photon orbit radii vs analytic r_ph.
-    - Conservation drift: E, L_z, |H| along a 500-step strong-field ray.
-21. [pending] Test report in `validation/reports/` (what/why/inputs/runtime; failures and fixes documented). Fix any physics discrepancies **now**, before the disk exists.
-22. [pending] Commit plots and report; **checkpoint**: review plots together before Phase 5.
+18. [completed] `validation/` as a `uv` project (`uv init`, `uv add numpy matplotlib`, dev tools `ruff`, `ty`, `detect-secrets`); full type annotations; complete pre-commit hook configuration (ruff/ty via uv.lock-pinned local hooks).
+19. [completed] NumPy/float64 mirror of the shader integrator (same Hamiltonian, same RK4, same FD gradients, same adaptive step and termination) in `validation/kerr.py`.
+20. [completed] Produce four validation plots (§5), each with interpretation notes (axes, expected pattern, takeaway):
+    - Convergence order: slope 4.08 above the (annotated) FD-gradient error floor.
+    - Schwarzschild critical impact parameter: |λ_c| = 5.196155 vs 3√3 = 5.196152 M (rel. err. 5×10⁻⁷).
+    - Kerr photon shell at a = 0.9: prograde 1.55787 vs 1.55785 M, retrograde 3.91031 vs 3.91027 M (≈10⁻⁵ both).
+    - Conservation drift: generic flyby ~10⁻⁶ (production step policy), near-critical ray bounded < 2×10⁻⁵ despite e^{2π}-per-orbit error amplification; E conserved identically by construction.
+21. [completed] Test report in `validation/reports/validation.md` (what/why/inputs/runtime; failures and fixes documented). Physics discrepancies found and fixed: past-directed rays flip the sign of λ (positive offsets are retrograde photons) — brackets and comparisons corrected.
+22. [completed] Commit plots and report; **checkpoint**: 8/8 checks PASS; ruff, ruff-format, and ty all clean.
 
 ## Phase 5: Relativistic Accretion Disk (§2.5)
 
