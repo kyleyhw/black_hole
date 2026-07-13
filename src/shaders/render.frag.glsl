@@ -36,6 +36,10 @@ uniform vec4 uE1;            // w = t component. e0 = camera 4-velocity,
 uniform vec4 uE2;            // e1/e2/e3 = right/up/forward (derivations.md §8)
 uniform vec4 uE3;
 uniform int uSkyShift;       // apply g* = 1/q_t redshift to the starfield
+uniform float uDiskSense;    // +1 prograde, -1 retrograde orbital flow
+uniform vec3 uDiskNormal;    // unit disk normal (tilted about y; z-hat at i=0)
+uniform vec3 uDiskE1;        // in-plane basis for the noise angle
+uniform vec3 uDiskE2;
 
 const float R_ESCAPE = 200.0;  // escape radius (M); camera max is 60 M
 const int HARD_CAP = 1024;     // absolute loop bound (driver-safe)
@@ -148,15 +152,17 @@ vec3 hash33(vec3 p) {
 // (PROJECT_PLAN §2.5; derivations.md §6–7)
 // ============================================================================
 
-// Orbital angular velocity Omega = 1/(r^{3/2} + a) and time-dilation factor
-// u^t = (1 + a r^{-3/2}) / sqrt(1 - 3/r + 2 a r^{-3/2})   (M = 1, prograde).
-// Valid for r >= r_ISCO, where the sqrt argument is strictly positive.
+// Orbital angular velocity Omega = s/(r^{3/2} + s a) and time-dilation
+// factor u^t = (1 + s a r^{-3/2}) / sqrt(1 - 3/r + 2 s a r^{-3/2}), with
+// s = +1 prograde / -1 retrograde (M = 1; derivations.md §6, PROJECT_PLAN
+// §9.3). Valid for r >= r_ISCO(s), where the sqrt argument is positive.
 float diskOmega(float r, float a) {
-  return 1.0 / (r * sqrt(r) + a);
+  return uDiskSense / (r * sqrt(r) + uDiskSense * a);
 }
 float diskUt(float r, float a) {
   float inv32 = 1.0 / (r * sqrt(r));  // r^{-3/2}
-  return (1.0 + a * inv32) / sqrt(max(1.0 - 3.0 / r + 2.0 * a * inv32, 1e-6));
+  float sa = uDiskSense * a;
+  return (1.0 + sa * inv32) / sqrt(max(1.0 - 3.0 / r + 2.0 * sa * inv32, 1e-6));
 }
 
 // Value noise on a cylinder: q.x unbounded (log r), q.y periodic with
@@ -206,9 +212,13 @@ vec3 diskColor(float t) {
 // Shade a disk hit at equatorial point xh with ray momentum ph.
 // Returns premultiplied-style (rgb, alpha) for front-to-back accumulation.
 vec4 diskShade(vec3 xh, vec3 ph, float pt, float r, float a) {
-  // Redshift g = 1 / [u^t (1 - Omega lambda)]; lambda = L_z/E of the
-  // physical photon = -(x p_y - y p_x)/q_t for the traced ray (E = q_t).
-  float lambda = -(xh.x * ph.y - xh.y * ph.x) / pt;
+  // Redshift g = 1 / [u^t (1 - Omega lambda_n)] with lambda_n the angular
+  // momentum about the DISK normal per unit energy, evaluated at the hit:
+  // lambda_n = -((x cross p) . n)/q_t. Equals the conserved L_z/E for the
+  // equatorial disk; for a tilted disk it is the natural kinematic choice
+  // (exact at a = 0 by spherical symmetry; the tilted mode is labeled a
+  // kinematic approximation for a != 0 — see docs/rendering.md).
+  float lambda = -dot(cross(xh, ph), uDiskNormal) / pt;
   float g = 1.0 / max(diskUt(r, a) * (1.0 - diskOmega(r, a) * lambda), 1e-3);
   g = min(g, 10.0);
 
@@ -218,7 +228,7 @@ vec4 diskShade(vec3 xh, vec3 ph, float pt, float r, float a) {
   float ePeak = (1.0 - sqrt(36.0 / 49.0)) / pow(uDiskInner * 49.0 / 36.0, 3.0);
   float emiss = e / max(ePeak, 1e-9);
 
-  float noise = diskPattern(r, atan(xh.y, xh.x), a);
+  float noise = diskPattern(r, atan(dot(xh, uDiskE2), dot(xh, uDiskE1)), a);
   float beam = (uBeaming == 1) ? g * g * g * g : 1.0;
 
   // Rest-frame temperature profile T ~ r^{-3/4} (thin disk), observed gT.
@@ -382,12 +392,12 @@ void main() {
     rk4Step(x, p, h, pt, a);
     steps++;
 
-    // Disk plane crossing: sign change of z across the step. Bisect the
-    // step 3 times (each halving re-integrates, so the hit point lies on
-    // the true geodesic), then linearly interpolate the final sub-step.
-    // A high-curvature step straddling z = 0 twice can be missed — the
+    // Disk plane crossing: sign change of (x . n) across the step. Bisect
+    // the step 3 times (each halving re-integrates, so the hit point lies
+    // on the true geodesic), then linearly interpolate the final sub-step.
+    // A high-curvature step straddling the plane twice can be missed — the
     // adaptive step keeps steps ~10% of the local scale, making that rare.
-    if (uDiskOn == 1 && xPrev.z * x.z < 0.0 && accA < 0.99) {
+    if (uDiskOn == 1 && dot(xPrev, uDiskNormal) * dot(x, uDiskNormal) < 0.0 && accA < 0.99) {
       vec3 xa = xPrev;
       vec3 pa = pPrev;
       float hh = h;
@@ -396,22 +406,21 @@ void main() {
         vec3 xm = xa;
         vec3 pm = pa;
         rk4Step(xm, pm, hh, pt, a);
-        if (xa.z * xm.z >= 0.0) {  // crossing is in the second half
-          xa = xm;
+        if (dot(xa, uDiskNormal) * dot(xm, uDiskNormal) >= 0.0) {
+          xa = xm;  // crossing is in the second half
           pa = pm;
         }
       }
       vec3 xb = xa;
       vec3 pb = pa;
       rk4Step(xb, pb, hh, pt, a);
-      float denom = xa.z - xb.z;
+      float za = dot(xa, uDiskNormal);
+      float denom = za - dot(xb, uDiskNormal);
       if (abs(denom) < 1e-12) denom = 1e-12;
-      float tf = clamp(xa.z / denom, 0.0, 1.0);
+      float tf = clamp(za / denom, 0.0, 1.0);
       vec3 xh = mix(xa, xb, tf);
       vec3 ph = mix(pa, pb, tf);
-      // Equatorial KS radius: r^2 = rho^2 - a^2 exactly at z = 0.
-      float rh2 = xh.x * xh.x + xh.y * xh.y - a * a;
-      float rHit = sqrt(max(rh2, 0.0));
+      float rHit = ksRadius(xh, a);
       if (rHit > uDiskInner && rHit < uDiskOuter) {
         vec4 d = diskShade(xh, ph, pt, rHit, a);
         accCol += (1.0 - accA) * d.a * d.rgb;

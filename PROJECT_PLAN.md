@@ -328,10 +328,10 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 9: Disk Extensions — Retrograde Flow and Inclination (§9.3)
 
-44. [pending] Retrograde toggle: orbit-sense parameter s = ±1 threaded through Ω, u^t, r_ISCO; UI toggle with live r_ISCO readout (retrograde ISCO visibly larger — the physics-made-visible moment of this phase).
-45. [pending] Disk inclination slider: tilted-plane crossing test (sign change of x·n̂) with bisection; equatorial kinematics carried to the tilted plane, UI-labeled "kinematic approximation" for a ≠ 0 and exact at a = 0; documented in docs/.
-46. [pending] Validation: retrograde r_ISCO and photon-orbit radii vs analytic s = −1 expressions; visual mirror-check of beaming asymmetry under s → −s; report entry.
-47. [pending] Commit; **checkpoint**: review retrograde/inclined renders and the approximation labeling.
+44. [completed] Retrograde toggle: orbit-sense parameter s = ±1 threaded through Ω, u^t, r_ISCO; UI toggle with live r_ISCO readout (retrograde ISCO visibly larger — face-on hole 73 px vs 29 px at a = 0.9).
+45. [completed] Disk inclination slider (0–29°): tilted-plane crossing test (sign change of x·n̂) with bisection; redshift via angular momentum about the disk normal at the hit (exact at a = 0); UI note and docs label the a ≠ 0 case a kinematic approximation.
+46. [completed] Validation: retrograde r_ISCO vs BPT (8.71735 vs 8.7174 M) and retrograde photon-orbit radius already in the suite (study 3, err 10⁻⁵); beaming asymmetry flips under s → −s (1.65 → 0.75, with the physically expected weakening from the larger retrograde ISCO); report entry.
+47. [completed] Commit; **checkpoint**: e2e `e2e/phase9.cjs` PASS (report: `e2e/reports/phase9.md`); renders show the star-filled gap between shadow and the receded retrograde inner edge.
 
 ## Phase 10: Weak-Field Multi-Mass Mode (§9.4)
 

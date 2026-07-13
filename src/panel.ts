@@ -19,6 +19,8 @@ export interface PanelParams {
   ergoOn: boolean;
   photonOn: boolean;
   skyShift: boolean; // starfield redshift/beaming for the camera frame
+  diskSense: 1 | -1; // orbital flow: +1 prograde, -1 retrograde
+  diskIncl: number; // disk tilt (rad); kinematic approximation for a != 0
 }
 
 /** GM_sun / c^2 in kilometres — converts lengths in M to km. */
@@ -183,6 +185,19 @@ export function buildPanel(
     fmt: (v) => v.toFixed(1),
   }));
   add(disk.body, toggle("g⁴ beaming", () => params.beaming, (v) => (params.beaming = v)));
+  add(disk.body, toggle("retrograde", () => params.diskSense === -1, (v) => (params.diskSense = v ? -1 : 1)));
+  add(disk.body, slider({
+    label: "tilt",
+    min: 0, max: 0.5, step: 0.01,
+    get: () => params.diskIncl,
+    set: (v) => (params.diskIncl = v),
+    fmt: (v) => `${((v * 180) / Math.PI).toFixed(0)}°`,
+  }));
+  const tiltNote = el("div", { class: "readout" },
+    "tilt ≠ 0 is a <i>kinematic approximation</i> for a ≠ 0: circular " +
+    "orbits off the equator are not Kerr geodesics (exact at a = 0). " +
+    "Light propagation stays exact.");
+  disk.body.append(tiltNote);
 
   // --- Quality ---
   const q = section("Quality", false);
@@ -268,7 +283,7 @@ function fmtKm(lengthM: number, mSun: number): string {
 
 function updateReadout(node: HTMLElement, p: PanelParams): void {
   const rp = horizonRadius(p.spin);
-  const ri = riscoOf(p.spin);
+  const ri = riscoOf(p.spin, p.diskSense);
   node.innerHTML =
     `r<sub>+</sub> = ${rp.toFixed(3)} M = ${fmtKm(rp, p.massMsun)}<br>` +
     `r<sub>ISCO</sub> = ${ri.toFixed(3)} M = ${fmtKm(ri, p.massMsun)}` +

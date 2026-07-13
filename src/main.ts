@@ -25,6 +25,8 @@ const params: PanelParams = {
   ergoOn: false,
   photonOn: false,
   skyShift: true,
+  diskSense: 1,
+  diskIncl: 0,
 };
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -44,6 +46,7 @@ const uScene = uniforms(gl, sceneProg, [
   "uSpin", "uMaxSteps", "uDebugView",
   "uDiskOn", "uDiskInner", "uDiskOuter", "uBeaming", "uDiskGain", "uTime",
   "uE0", "uE1", "uE2", "uE3", "uSkyShift",
+  "uDiskSense", "uDiskNormal", "uDiskE1", "uDiskE2",
 ]);
 const uBlur = uniforms(gl, blurProg, ["uTex", "uTexelSize", "uDir", "uThreshold"]);
 const uComp = uniforms(gl, compositeProg, [
@@ -160,7 +163,7 @@ function frame(now: number): void {
   gl.uniform1i(uScene.get("uMaxSteps") ?? null, params.maxSteps);
   gl.uniform1i(uScene.get("uDebugView") ?? null, params.debugView);
   gl.uniform1i(uScene.get("uDiskOn") ?? null, params.diskOn ? 1 : 0);
-  gl.uniform1f(uScene.get("uDiskInner") ?? null, riscoOf(params.spin));
+  gl.uniform1f(uScene.get("uDiskInner") ?? null, riscoOf(params.spin, params.diskSense));
   gl.uniform1f(uScene.get("uDiskOuter") ?? null, params.diskOuter);
   gl.uniform1i(uScene.get("uBeaming") ?? null, params.beaming ? 1 : 0);
   gl.uniform1f(uScene.get("uDiskGain") ?? null, params.diskGain);
@@ -171,6 +174,14 @@ function frame(now: number): void {
   gl.uniform4f(uScene.get("uE2") ?? null, ...packLeg(tetrad[2]));
   gl.uniform4f(uScene.get("uE3") ?? null, ...packLeg(tetrad[3]));
   gl.uniform1i(uScene.get("uSkyShift") ?? null, params.skyShift ? 1 : 0);
+  gl.uniform1f(uScene.get("uDiskSense") ?? null, params.diskSense);
+  // Disk tilted about the y-axis by diskIncl: normal, plus the in-plane
+  // basis used for the noise angle.
+  const ci = Math.cos(params.diskIncl);
+  const si = Math.sin(params.diskIncl);
+  gl.uniform3f(uScene.get("uDiskNormal") ?? null, si, 0, ci);
+  gl.uniform3f(uScene.get("uDiskE1") ?? null, ci, 0, -si);
+  gl.uniform3f(uScene.get("uDiskE2") ?? null, 0, 1, 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   // --- 2. Bloom: bright-pass horizontal blur, then vertical ---
@@ -268,6 +279,7 @@ declare global {
       gl: WebGL2RenderingContext;
       freefall: FreeFall;
       release: () => void;
+      risco: (a: number, sense: 1 | -1) => number;
       /** Diagnostic: q_t of the central pixel's traced ray (g* = 1/q_t). */
       centerQt: () => number;
     };
@@ -279,6 +291,7 @@ window.__bh = {
   gl,
   freefall,
   release: releaseCamera,
+  risco: riscoOf,
   centerQt: (): number => {
     const b = camera.basis();
     const u4: Vec4 = freefall.active ? freefall.fourVelocity() : staticObserver(b.pos, params.spin);
