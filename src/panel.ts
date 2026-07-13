@@ -20,6 +20,7 @@ export interface PanelParams {
   photonOn: boolean;
   gridOn: boolean;
   skyShift: boolean; // starfield redshift/beaming for the camera frame
+  autoOrbit: boolean; // cinematic idle drift when the user is not interacting
   diskSense: 1 | -1; // orbital flow: +1 prograde, -1 retrograde
   diskIncl: number; // disk tilt (rad); kinematic approximation for a != 0
   mode: "kerr" | "multi"; // exact Kerr vs linearized multi-mass
@@ -246,7 +247,17 @@ const LEARN = {
       you must hold something fixed in <i>absolute</i> units — anchor the
       camera at a fixed number of kilometres, or put a background star at a
       fixed distance, then a heavier hole looms larger and lenses more of the
-      sky. Anchored in M, only the scale bar changes.</p>`,
+      sky. Anchored in M, only the scale bar changes.</p>
+      <p><b>Shouldn't mass at least affect the disk or background?</b> In this
+      scale-free model, no — the disk is defined in units of M (inner edge at
+      r<sub>ISCO</sub>, outer edge in M) and the stars are a direction field
+      "at infinity" with no length scale, so both are invariant too. The one
+      genuinely mass-dependent feature in reality is the disk's color
+      temperature: at fixed Eddington ratio T ∝ M<sup>−1/4</sup>, so
+      stellar-mass holes glow in X-rays and supermassive ones in the
+      UV/optical. We don't render that absolute baseline (it needs an
+      accretion rate and would just globally tint the disk); we show the exact
+      <i>relative</i> redshift/Doppler variation g·T instead.</p>`,
   },
   disk: {
     title: "The accretion disk",
@@ -257,7 +268,10 @@ const LEARN = {
       dragging. The approaching side is boosted by g⁴ (relativistic beaming)
       and blue-shifted; the receding side is dimmed and reddened — that's the
       iconic bright/dark asymmetry. The arcs above and below the shadow are
-      the disk's far side, lensed over and under the hole.</p>`,
+      the disk's far side, lensed over and under the hole. The fluid pattern
+      orbits at each radius's own Keplerian rate Ω(r), so the inner annuli
+      visibly outrun the outer ones (differential rotation) — shown in
+      fast-forward, while the redshift colors stay exact.</p>`,
   },
   beaming: {
     title: "g⁴ beaming",
@@ -285,7 +299,10 @@ const LEARN = {
       <b>Release</b> drops the camera onto a timelike geodesic: it falls
       freely, and at a &gt; 0 frame dragging visibly swings it azimuthally
       even though it started at rest. Stop the fall any time, or let it
-      plunge to near the horizon and reset.</p>`,
+      plunge to near the horizon and reset. When you leave it alone,
+      <b>auto-orbit</b> eases the camera into a slow drift so the shadow's
+      D-shape and the disk's near/far asymmetry sweep past — it stops the
+      moment you touch the view.</p>`,
   },
   skyshift: {
     title: "Sky redshift",
@@ -450,6 +467,7 @@ export function buildPanel(
   setInterval(() => {
     rel.textContent = isFreefalling() ? "Stop free fall" : "Release camera (free-fall)";
   }, 150);
+  add(cam.body, toggle("auto-orbit (idle)", () => params.autoOrbit, (v) => (params.autoOrbit = v)));
   {
     const r = toggle("sky redshift", () => params.skyShift, (v) => (params.skyShift = v));
     r.row.append(infoBtn(LEARN.skyshift.title, LEARN.skyshift.html));

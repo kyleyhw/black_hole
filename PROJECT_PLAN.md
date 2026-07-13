@@ -13,9 +13,11 @@ Part I is the specification; Part II is the task list. Tasks reference specifica
 > SwiftShader software adapter: modal flow, PNG download, and numerical
 > pixel parity between the GLSL and WGSL ports (8×8 block-mean difference
 > 3.56/255 at matched sampling — see e2e/reports/phase11.md). Phase 12 added
-> the owner-requested educational/UX layer (mass scale-invariance explained,
-> free-fall stop, coordinate grid, click-to-learn popups + a full notation
-> glossary, collapsible sidebar) — see e2e/reports/phase12.md.
+> the owner-requested educational/UX + animation layer (mass scale-invariance
+> explained, free-fall stop, coordinate grid, click-to-learn popups + a full
+> notation glossary, collapsible sidebar, cinematic idle auto-orbit, visible
+> Keplerian disk shear, half-size flux-conserving stars) — all 9 browser e2e
+> suites re-certified PASS; see e2e/reports/phase12.md.
 
 ---
 
@@ -368,3 +370,6 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 61. [completed] Coordinate-grid overlay (`uGridOn`): equatorial constant-r circles every 2M + twelve 30° spokes, drawn unlensed like the other schematic markers; toggle in the Overlays section; documented in `docs/rendering.md`.
 62. [completed] Click-to-learn: twelve accurate physics popups (ⓘ) on section headers and key rows, plus a **Units & notation** glossary defining every symbol used in the UI (M, a, r, θ, φ, r₊, r_ISCO, Ω, uᵗ, E, L_z, λ, g, g★, Φ, H) and the geometrized-unit convention; About modal cross-references it. Collapsible sidebar (`#panelToggle`).
 63. [completed] Commit; **checkpoint**: e2e `e2e/phase12.cjs` PASS (5/5 — mass pixel-invariance, grid toggle, free-fall stop state machine, glossary-defines-symbols, sidebar collapse); phase6 panel regression re-passes. Report: `e2e/reports/phase12.md`.
+64. [completed] Animation/realism round: cinematic idle auto-orbit (0.05 rad/s azimuthal drift after 4 s of stillness; capture-phase interaction listeners reset it; Camera-section toggle; disabled under `__bhTest`). Visible Keplerian shear via `DISK_TIME_SCALE = 8` playback remap of the texture phase only (g and g⁴ unchanged — a pure fast-forward; `__bhDiskTime` seam freezes it for measurement). Star footprint halved (`STAR_SIZE = 0.5`) toward point sources with 1/STAR_SIZE² flux-conserving brightness. Default resolution 1.00× / bloom 0; `__bhTest` renders at 0.75 to keep the software-WebGL2 e2e responsive.
+65. [completed] Notation/physics: mass popup now answers "shouldn't mass affect lensing/the disk/background" — α = 4M/b holds M/b fixed under an M-anchored camera; the one real M-dependence is disk color temperature T ∝ M^(−1/4) (deliberately not rendered); the starfield is a direction field at infinity (scale-free).
+66. [completed] Test hardening (root-cause, not threshold nudges): phase 9 beaming measured disk-only (on−off cancels the frozen starfield; flip sharpened to 4.47/0.56); phase 10 validity polls the indicator instead of racing a fixed wait; phase 9 pins resolution 0.75; full 9-suite sweep re-certified PASS. Report updated: `e2e/reports/phase12.md`.

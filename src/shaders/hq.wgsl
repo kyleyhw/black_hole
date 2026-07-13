@@ -132,8 +132,12 @@ fn vnoiseCyl(q : vec2f, period : f32) -> f32 {
   return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
 }
 
+// Texture-phase fast-forward so the differential Keplerian shear is visible
+// (see render.frag.glsl); a pure time remap — g and g^4 beaming are exact.
+const DISK_TIME_SCALE : f32 = 8.0;
+
 fn diskPattern(r : f32, phi : f32, a : f32) -> f32 {
-  let co = phi - diskOmega(r, a) * U[46];
+  let co = phi - diskOmega(r, a) * U[46] * DISK_TIME_SCALE;
   var n = 0.0;
   var amp = 0.5;
   var freq = 1.0;
@@ -175,6 +179,9 @@ fn diskShade(xh : vec3f, ph : vec3f, pt : f32, r : f32, a : f32) -> vec4f {
 // ============================================================================
 const STAR_CELLS : f32 = 400.0;
 const STAR_DENSITY : f32 = 0.04;
+// Half-size star footprint toward true point sources, with 1/STAR_SIZE^2
+// flux-conserving peak compensation (see render.frag.glsl).
+const STAR_SIZE : f32 = 0.5;
 
 struct CubeProj { face : f32, uv : vec2f }
 
@@ -228,11 +235,11 @@ fn starfield(dir : vec3f, gstar : f32) -> vec3f {
       let starDir = cubeUnproject(proj.face, (cell + rnd.xy) / STAR_CELLS);
       let b = pow(1.0 - 0.97 * rnd.z, -0.6667);
       let ang = acos(clamp(dot(dir, starDir), -1.0, 1.0));
-      let radius = pixAngle * (0.5 + 0.35 * b);
+      let radius = pixAngle * (0.5 + 0.35 * b) * STAR_SIZE;
       let fall = 1.0 - smoothstep(0.0, radius, ang);
       let tShift = clamp((0.5 + hash13(seed + 41.0)) * gstar - 0.5, 0.0, 1.0);
       let beam4 = gstar * gstar * gstar * gstar;
-      col += fall * b * 0.3 * beam4 * starColor(tShift);
+      col += fall * b * 0.3 * beam4 * starColor(tShift) / (STAR_SIZE * STAR_SIZE);
     }
   }
   return col;

@@ -15,7 +15,12 @@ const params: PanelParams = {
   massMsun: 10,
   maxSteps: 400,
   debugView: 0,
-  resolutionScale: 1.0,
+  // Full internal resolution by default. Under the e2e harness (__bhTest set
+  // via addInitScript before this runs) fall back to 0.75 — the long-standing
+  // test-time scale the pixel thresholds are calibrated against — so the
+  // software renderer stays responsive without a full-res 1.0 frame stalling
+  // Playwright's actionability polling before each test sets its own scale.
+  resolutionScale: (window as unknown as { __bhTest?: boolean }).__bhTest ? 0.75 : 1.0,
   diskOn: true,
   diskOuter: 12.0,
   beaming: true,
@@ -27,6 +32,7 @@ const params: PanelParams = {
   photonOn: false,
   gridOn: false,
   skyShift: true,
+  autoOrbit: true,
   diskSense: 1,
   diskIncl: 0,
   mode: "kerr",
@@ -189,6 +195,17 @@ canvas.addEventListener("pointerup", () => (massDrag = null));
 camera.attach(canvas);
 const freefall = new FreeFall();
 
+// Cinematic idle orbit: after a few seconds without input the camera eases
+// into a slow azimuthal drift (slow rotation is what makes the D-shaped
+// shadow and frame-dragging asymmetry legible). Any discrete interaction
+// resets the idle clock via capture-phase listeners, so it stops instantly
+// on touch and resumes only after stillness. `__bhTest` disables it so the
+// e2e suites see a still camera.
+const IDLE_ORBIT_DELAY = 4.0; // seconds of stillness before drifting
+const IDLE_ORBIT_RATE = 0.05; // rad/s — ~2 min per revolution, unhurried
+for (const ev of ["pointerdown", "pointerup", "wheel", "touchstart", "touchend", "keydown"])
+  window.addEventListener(ev, () => camera.markInteraction(), { capture: true, passive: true });
+
 let lastT = performance.now();
 let fpsEma = 0;
 const fpsNode = document.getElementById("fps") as HTMLDivElement;
@@ -208,6 +225,15 @@ function frame(now: number): void {
     camera.azimuth = Math.atan2(py, px);
     camera.elevation = Math.asin(pz / Math.max(camera.radius, 1e-9));
     if (!alive) camera.reset();
+  }
+  // Idle cinematic drift (see above): only when enabled, at rest, and not
+  // manipulating, free-falling, or dragging a mass.
+  const testMode = (window as unknown as { __bhTest?: boolean }).__bhTest;
+  if (
+    params.autoOrbit && !testMode && !freefall.active && !massDrag &&
+    !camera.isManipulating && camera.idleSeconds() > IDLE_ORBIT_DELAY
+  ) {
+    camera.azimuth += IDLE_ORBIT_RATE * dt;
   }
   ensureTargets();
   if (!scene || !bloomA || !bloomB) return;
@@ -263,7 +289,11 @@ function frame(now: number): void {
   gl.uniform1i(uScene.get("uBeaming") ?? null, params.beaming ? 1 : 0);
   gl.uniform1f(uScene.get("uDiskGain") ?? null, params.diskGain);
   // Wrap scene time at 30 min to keep f32 precision in the noise advection.
-  gl.uniform1f(uScene.get("uTime") ?? null, (now / 1000) % 1800);
+  // Test seam: __bhDiskTime pins the disk clock so the procedural pattern is
+  // identical across screenshots, letting the e2e suite measure the physical
+  // beaming/geometry without the fast-forwarded turbulence adding variance.
+  const diskClock = (window as unknown as { __bhDiskTime?: number }).__bhDiskTime;
+  gl.uniform1f(uScene.get("uTime") ?? null, typeof diskClock === "number" ? diskClock : (now / 1000) % 1800);
   gl.uniform4f(uScene.get("uE0") ?? null, ...packLeg(tetrad[0]));
   gl.uniform4f(uScene.get("uE1") ?? null, ...packLeg(tetrad[1]));
   gl.uniform4f(uScene.get("uE2") ?? null, ...packLeg(tetrad[2]));

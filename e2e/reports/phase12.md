@@ -1,7 +1,7 @@
-# Phase 12 Test Report — Educational / UX Round
+# Phase 12 Test Report — Educational / UX + Animation Round
 
-**Script:** `e2e/phase12.cjs` · **Runtime:** 35.3 s · **Result: PASS**
-(5/5 checks executed, no skips)
+**Script:** `e2e/phase12.cjs` · **Runtime:** ~60 s · **Result: PASS**
+(6/6 checks executed, no skips; full 9-suite sweep re-certified green)
 
 ## What this round added
 
@@ -57,9 +57,42 @@ About modal points to it and defines a and M inline.
 | Free-fall stop (label, halt, stays put, revert) | "Stop free fall" → stopped, r held | ✓ |
 | Learn modal opens, defines a/φ/g, closes | yes | ✓ |
 | Sidebar collapse + reopen | yes | ✓ |
+| Idle auto-orbit drifts, freezes when off | drift 0.2 rad, then frozen | ✓ |
 
 Artifact: `screenshots/phase12-grid.png` (grid + shadow), and
 `docs/img/grid-overlay.png` for the docs.
+
+## Animation / realism additions (same round)
+
+- **Cinematic idle orbit.** After `IDLE_ORBIT_DELAY` (4 s) without input the
+  camera drifts azimuthally at 0.05 rad/s; any discrete interaction (tracked
+  by capture-phase `window` listeners) resets the idle clock, and toggling it
+  off freezes the camera. The check lifts the harness freeze, confirms the
+  azimuth advances monotonically, then confirms it stops dead when disabled.
+  Disabled under the harness by default (`__bhTest`) so every other suite sees
+  a still camera.
+- **Visible Keplerian shear.** The disk texture already advected in
+  co-rotating coordinates φ − Ω(r)·t; a ×8 playback scale (`DISK_TIME_SCALE`)
+  makes the differential rotation legible — inner annuli outrun outer ones. It
+  is a pure time remap; the instantaneous g and g⁴ beaming use Ω(r) directly
+  and are unchanged (verified: phase 11 GLSL↔WGSL parity still 3.2/255).
+- **Half-size stars.** Star footprint halved toward true point sources
+  (`STAR_SIZE = 0.5`) with 1/STAR_SIZE² flux-conserving peak compensation, so
+  the sky keeps its brightness while the stars sharpen.
+
+## Test hardening this round (root causes, not threshold nudges)
+
+- **`__bhDiskTime` seam** freezes the fast-forwarded turbulence so physics
+  suites measure a static pattern.
+- **phase 9 beaming is now disk-only** (on-frame minus off-frame cancels the
+  frozen starfield exactly): the flip signal sharpened from 1.5/0.95 —
+  marginal — to **4.47 / 0.56**, immune to any star-rendering change.
+- **phase 10 validity now polls** for the indicator text instead of racing a
+  fixed 400 ms wait that a slow multi-mass frame could overrun.
+- **Test-mode resolution pinned to 0.75** (the long-standing calibration): the
+  new product default is 1.00×, which a software-WebGL2 frame cannot sustain
+  under Playwright's actionability polling; `__bhTest` falls back to 0.75 so
+  the pixel thresholds in phase 5/9 (which pin nothing) stay valid.
 
 ## Note on the mass question specifically
 

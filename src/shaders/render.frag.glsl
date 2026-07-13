@@ -218,11 +218,20 @@ float vnoiseCyl(vec2 q, float period) {
   return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
 }
 
+// Visual playback rate: with 1 code-second == 1 M of coordinate time the
+// inner edge takes ~a minute per orbit and the disk looks frozen. This
+// factor fast-forwards the *texture phase* so the differential (Keplerian)
+// shear is visible — the inner annuli visibly outrun the outer ones. It is
+// only a time remap; the instantaneous redshift g and g^4 beaming use
+// Omega(r) directly and are unchanged, so the physics of every pixel's
+// color is exact — this is fast-forward, not a distortion.
+const float DISK_TIME_SCALE = 8.0;
+
 // 3-octave turbulence in co-rotating coordinates (log r, phi - Omega(r) t):
 // each annulus advects at its own Keplerian rate, so the pattern shears
 // differentially — structure for free, no textures.
 float diskPattern(float r, float phi, float a) {
-  float co = phi - diskOmega(r, a) * uTime;
+  float co = phi - diskOmega(r, a) * uTime * DISK_TIME_SCALE;
   // 24 cells around the ring, 3 cells per e-fold of radius at base octave.
   float n = 0.0;
   float amp = 0.5;
@@ -286,6 +295,16 @@ vec4 diskShade(vec3 xh, vec3 ph, float pt, float r, float a) {
 
 const float STAR_CELLS = 400.0;   // cells per cube-face edge
 const float STAR_DENSITY = 0.04;  // fraction of cells containing a star
+// Apparent-radius scale for the drawn stars. Real stars are unresolved point
+// sources far below a pixel, so a smaller footprint is *physically* truer;
+// 0.5 halves the old rendered size, toward points. The rendered spot is a
+// point-spread footprint (an eye/telescope has one too), kept ~sub-pixel but
+// non-zero so stars anti-alias instead of twinkling under camera motion.
+// Peak brightness is scaled by 1/STAR_SIZE^2 (flux conservation: a point
+// source's total flux is fixed, so a PSF of half the radius — a quarter the
+// area — is four times brighter at its core). The sky keeps its overall
+// brightness; the stars are simply smaller and sharper.
+const float STAR_SIZE = 0.5;
 
 void cubeProject(vec3 d, out float face, out vec2 uv) {
   vec3 a = abs(d);
@@ -340,14 +359,14 @@ vec3 starfield(vec3 dir, float gstar) {
       vec3 starDir = cubeUnproject(face, (cell + rnd.xy) / STAR_CELLS);
       float b = pow(1.0 - 0.97 * rnd.z, -0.6667);
       float ang = acos(clamp(dot(dir, starDir), -1.0, 1.0));
-      float radius = pixAngle * (0.5 + 0.35 * b);
+      float radius = pixAngle * (0.5 + 0.35 * b) * STAR_SIZE;
       float fall = 1.0 - smoothstep(0.0, radius, ang);
       // 0.3 keeps all but the brightest ~5% of stars below saturation, so
       // the sky reads as a backdrop rather than competing with the disk.
       // Temperature parameter mapped to T_rel = 0.5 + t, shifted by gstar.
       float tShift = clamp((0.5 + hash13(seed + 41.0)) * gstar - 0.5, 0.0, 1.0);
       float beam4 = gstar * gstar * gstar * gstar;
-      col += fall * b * 0.3 * beam4 * starColor(tShift);
+      col += fall * b * 0.3 * beam4 * starColor(tShift) / (STAR_SIZE * STAR_SIZE);
     }
   }
   return col;

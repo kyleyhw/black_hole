@@ -108,6 +108,29 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
       () => !document.getElementById("panel").classList.contains("hidden"),
     );
 
+    // --- 6. Cinematic idle auto-orbit ---
+    // Lift the test freeze; the page loaded > 4 s ago and the last click was
+    // the collapse toggle, so after IDLE_ORBIT_DELAY (4 s) of stillness the
+    // camera must drift in azimuth, then freeze when the toggle is off.
+    await page.evaluate(() => {
+      window.__bhTest = false;
+      window.__bh.params.autoOrbit = true;
+    });
+    await page.waitForTimeout(4300);
+    const azA = await page.evaluate(() => window.__bh.camera.azimuth);
+    // Pump frames explicitly: headless rAF throttles under a raw timeout, and
+    // the drift only advances per rendered frame. settleFrames guarantees
+    // real frames elapse so the signal is well above the noise floor.
+    await settleFrames(page, 40);
+    const azB = await page.evaluate(() => window.__bh.camera.azimuth);
+    const drift = azB - azA; // monotone azimuthal advance; magnitude set by frame count
+    await page.evaluate(() => (window.__bh.params.autoOrbit = false));
+    await settleFrames(page, 5);
+    const azC = await page.evaluate(() => window.__bh.camera.azimuth);
+    await settleFrames(page, 30);
+    const azD = await page.evaluate(() => window.__bh.camera.azimuth);
+    const froze = Math.abs(azD - azC) < 1e-4;
+
     const results = {
       mass_pixelDiffFrac: massPixelDiff,
       mass_readout_10: readout10.slice(0, 60),
@@ -124,12 +147,15 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
       learn_defines_symbols: defines,
       learn_ok: learn.open && learn.text.length > 100 && defines && learnClosed,
       collapse_ok: hidden && shown,
+      autoorbit_drift_rad: drift,
+      autoorbit_froze: froze,
+      autoorbit_ok: drift > 0.02 && drift < 1.5 && froze,
       runtime_s: (Date.now() - t0) / 1000,
     };
     console.log(JSON.stringify(results, null, 2));
     if (
       !results.mass_invariance_ok || !results.grid_ok || !results.freefall_stop_ok ||
-      !results.learn_ok || !results.collapse_ok
+      !results.learn_ok || !results.collapse_ok || !results.autoorbit_ok
     )
       process.exitCode = 1;
   } catch (err) {

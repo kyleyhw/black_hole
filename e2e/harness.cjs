@@ -39,6 +39,10 @@ async function launchPage({ width = 800, height = 600, args = [] } = {}) {
     console.error("PAGE ERROR:", e.message);
     process.exitCode = 1;
   });
+  // Freeze the cinematic idle-orbit drift so tests see a still camera.
+  await page.addInitScript(() => {
+    window.__bhTest = true;
+  });
   await page.goto(`http://localhost:${PORT}/`, { waitUntil: "load" });
   await page.waitForFunction(() => window.__bh !== undefined, { timeout: 10000 });
   return { browser, page };

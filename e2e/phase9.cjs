@@ -19,18 +19,22 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
 const W = 240;
 const H = 180;
 
-function halfMeans(png) {
+// Left/right beaming asymmetry of the DISK ALONE: on-minus-off cancels the
+// (frozen) starfield exactly, so the ratio measures Doppler beaming and is
+// immune to how bright/large the background stars are rendered.
+function diskHalfAsym(onPng, offPng) {
   let left = 0;
   let right = 0;
-  for (let y = 0; y < png.height; y++)
-    for (let x = 0; x < png.width; x++) {
-      const i = (y * png.width + x) * 4;
-      const lum = 0.2126 * png.data[i] + 0.7152 * png.data[i + 1] + 0.0722 * png.data[i + 2];
-      if (x < png.width / 2) left += lum;
-      else right += lum;
+  for (let y = 0; y < onPng.height; y++)
+    for (let x = 0; x < onPng.width; x++) {
+      const i = (y * onPng.width + x) * 4;
+      const lumOn = 0.2126 * onPng.data[i] + 0.7152 * onPng.data[i + 1] + 0.0722 * onPng.data[i + 2];
+      const lumOff = 0.2126 * offPng.data[i] + 0.7152 * offPng.data[i + 1] + 0.0722 * offPng.data[i + 2];
+      const disk = Math.max(0, lumOn - lumOff);
+      if (x < onPng.width / 2) left += disk;
+      else right += disk;
     }
-  const n = (png.width * png.height) / 2;
-  return { left: left / n, right: right / n };
+  return left / right;
 }
 
 function annulusInnerRadius(png) {
@@ -57,6 +61,10 @@ function annulusInnerRadius(png) {
   const t0 = Date.now();
   const server = await startPreview();
   const { browser, page } = await launchPage({ width: W, height: H });
+  // Freeze the disk's procedural turbulence (fast-forwarded in the product):
+  // beaming and hole-geometry are static physical facts, so measuring them on
+  // a fixed noise pattern removes advection variance between screenshots.
+  await page.evaluate(() => (window.__bhDiskTime = 0));
   await page.addStyleTag({ content: "#panel,#fps,#footer{display:none !important}" });
   const outDir = path.join(__dirname, "screenshots");
   fs.mkdirSync(outDir, { recursive: true });
@@ -69,6 +77,7 @@ function annulusInnerRadius(png) {
         beaming: true,
         debugView: 0,
         maxSteps: 500,
+        resolutionScale: 0.75,
         skyShift: false,
         diskIncl: 0,
         ...s.params,
@@ -84,17 +93,23 @@ function annulusInnerRadius(png) {
     }));
     const iscoOk = Math.abs(isco.pro - 2.3209) < 2e-3 && Math.abs(isco.retro - 8.7174) < 2e-3;
 
-    // --- 2. Beaming flip under s -> -s ---
-    await setState({ params: { spin: 0.9, diskSense: 1 }, camera: { elevation: 0.15 } });
+    // --- 2. Beaming flip under s -> -s (disk-only, star-independent) ---
+    await setState({ params: { spin: 0.9, diskSense: 1, diskOn: true }, camera: { elevation: 0.15 } });
     await settleFrames(page, 4);
-    const hmPro = halfMeans(decodePng(await page.screenshot()));
-    await setState({ params: { spin: 0.9, diskSense: -1 }, camera: { elevation: 0.15 } });
+    const proOn = decodePng(await page.screenshot());
+    await setState({ params: { spin: 0.9, diskSense: 1, diskOn: false }, camera: { elevation: 0.15 } });
+    await settleFrames(page, 4);
+    const proOff = decodePng(await page.screenshot());
+    const asymPro = diskHalfAsym(proOn, proOff);
+    await setState({ params: { spin: 0.9, diskSense: -1, diskOn: true }, camera: { elevation: 0.15 } });
     await settleFrames(page, 4);
     const retroShot = await page.screenshot();
     fs.writeFileSync(path.join(outDir, "phase9-retro-a09.png"), retroShot);
-    const hmRet = halfMeans(decodePng(retroShot));
-    const asymPro = hmPro.left / hmPro.right;
-    const asymRet = hmRet.left / hmRet.right;
+    const retroOn = decodePng(retroShot);
+    await setState({ params: { spin: 0.9, diskSense: -1, diskOn: false }, camera: { elevation: 0.15 } });
+    await settleFrames(page, 4);
+    const retroOff = decodePng(await page.screenshot());
+    const asymRet = diskHalfAsym(retroOn, retroOff);
 
     // --- 3. Retrograde ISCO hole (face-on) ---
     await setState({ params: { spin: 0.9, diskSense: 1 }, camera: { elevation: 1.4 } });

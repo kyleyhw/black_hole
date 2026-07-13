@@ -32,7 +32,13 @@ chord-intersection test produces at grazing inclination.
   (log r, φ − Ω(r) t). Because each annulus advects at its own Keplerian
   rate the pattern shears differentially — the disk visibly rotates
   differentially with zero stored textures. The φ direction wraps with an
-  integer cell count per octave so there is no seam.
+  integer cell count per octave so there is no seam. The advection is played
+  back at ×8 real coordinate-time (`DISK_TIME_SCALE`) so the shear is visible
+  in seconds rather than the ~minute-per-orbit a 1:1 rate would give; this is
+  a pure time remap of the *texture phase* only — the instantaneous g and g⁴
+  factors depend on Ω(r), not on the playback rate, so every pixel's color is
+  unchanged. The e2e suite can pin the clock (`__bhDiskTime`) to measure the
+  physics on a frozen pattern.
 
 **Transparency.** Hits accumulate front-to-back with wispy, noise-modulated
 opacity, and the ray *continues* — this is what produces the lensed image
@@ -47,9 +53,16 @@ Procedural, zero assets (~40 lines): the escape direction is cube-projected
 jitter places the star, a power law (b = (1−0.97u)^(−2/3)) spreads
 brightness over ~1 decade, a small temperature ramp colors it, and a
 smoothstep falloff whose width tracks the local pixel footprint keeps stars
-sub-pixel-crisp at any resolution. Lensing of the field — Einstein-ring
-streaking, multiple imaging near the photon shell — costs nothing: it is
-just the geodesic map applied to the escape direction.
+sub-pixel-crisp at any resolution. The footprint radius carries a `STAR_SIZE`
+= 0.5 factor (stars are drawn at half the earlier size, closer to true
+unresolved point sources) with 1/STAR_SIZE² peak compensation, i.e. flux
+conservation: a point source's total flux is fixed, so a half-radius PSF —
+a quarter the area — is four times brighter at its core. The sky keeps its
+overall brightness; the stars are simply smaller and sharper. A non-zero
+footprint is kept deliberately so stars anti-alias instead of twinkling
+under the idle camera drift. Lensing of the field — Einstein-ring streaking,
+multiple imaging near the photon shell — costs nothing: it is just the
+geodesic map applied to the escape direction.
 
 Known artifact, accepted deliberately: the star renderer does not conserve
 surface brightness under magnification (streaks render at full brightness

@@ -31,8 +31,25 @@ export class OrbitCamera {
   private lastX = 0;
   private lastY = 0;
   private pinchDist: number | null = null;
+  private lastInteractMs = 0;
+
+  /** True while the user is actively dragging or pinching. */
+  get isManipulating(): boolean {
+    return this.dragging || this.pinchDist !== null;
+  }
+
+  /** Reset the idle clock — called on any discrete user interaction. */
+  markInteraction(): void {
+    this.lastInteractMs = performance.now();
+  }
+
+  /** Seconds since the last interaction (∞ before the first one). */
+  idleSeconds(): number {
+    return this.lastInteractMs === 0 ? Infinity : (performance.now() - this.lastInteractMs) / 1000;
+  }
 
   attach(el: HTMLElement): void {
+    this.lastInteractMs = performance.now();
     el.addEventListener("pointerdown", (e: PointerEvent) => {
       this.dragging = true;
       this.lastX = e.clientX;

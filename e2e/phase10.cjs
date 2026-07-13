@@ -105,18 +105,26 @@ function darkFrac(png, x, y, r) {
     );
 
     // --- 3. Validity indicator: far state (0.5+0.5)/24 = 0.04 (linear),
-    // near state 1/3 = 0.33 (warns above 0.1) ---
+    // near state 1/3 = 0.33 (warns above 0.1). The indicator refreshes on a
+    // 200 ms interval that a slow software-render frame can delay past a fixed
+    // wait, so poll for the settled text instead of racing a timeout. ---
     await page.evaluate(() => {
       window.__bh.params.masses[0] = { m: 0.5, pos: [0, -12, 0] };
       window.__bh.params.masses[1] = { m: 0.5, pos: [0, 12, 0] };
     });
-    await page.waitForTimeout(400); // indicator refreshes at 5 Hz
+    await page.waitForFunction(
+      () => /≤ 0\.0/.test(document.getElementById("validity").textContent),
+      { timeout: 8000 },
+    );
     const farText = await page.evaluate(() => document.getElementById("validity").textContent);
     await page.evaluate(() => {
       window.__bh.params.masses[0].pos = [0, -1.5, 0];
       window.__bh.params.masses[1].pos = [0, 1.5, 0];
     });
-    await page.waitForTimeout(400);
+    await page.waitForFunction(
+      () => document.getElementById("validity").textContent.includes("⚠"),
+      { timeout: 8000 },
+    );
     const nearText = await page.evaluate(() => document.getElementById("validity").textContent);
 
     // --- 4. Back to Kerr ---
