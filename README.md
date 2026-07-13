@@ -7,8 +7,13 @@ Doppler/redshift, and shadow are all exact solutions of general relativity,
 not approximations or artistic effects.
 
 **[Live demo](https://kyleyhw.github.io/black_hole/)** · spin slider from
-Schwarzschild (a = 0) to near-extremal (a = 0.998 M), free orbit camera,
-relativistic accretion disk, procedural starfield, validation suite.
+Schwarzschild (a = 0) to near-extremal (a = 0.998 M), free orbit camera
+plus a **free-fall camera on a timelike geodesic** (with per-pixel
+aberration and sky red/blueshift from a proper camera tetrad),
+relativistic accretion disk (prograde/retrograde, tiltable), a clearly
+labeled linearized **multi-mass mode** with draggable masses, a WebGPU
+progressive HQ-still renderer (WebGL2 remains the universal fallback), a
+procedural starfield, and a 12-check validation suite.
 
 ![Kerr black hole with accretion disk, a = 0.6](docs/img/hero.png)
 
@@ -71,7 +76,7 @@ explicit f32 truncation/roundoff optimum. Details:
 
 A float64 mirror of the exact shader algorithm
 ([`validation/kerr.py`](validation/kerr.py)) is tested against analytic
-strong-field results — all 8 checks pass
+strong-field results — all 12 checks pass
 ([full report](validation/reports/validation.md)):
 
 | | |
@@ -81,12 +86,21 @@ strong-field results — all 8 checks pass
 | ![Photon shell](validation/plots/photon_shell.png) | ![Conservation drift](validation/plots/conservation_drift.png) |
 | **Kerr photon shell (a = 0.9):** the marginally-escaping ray's minimum radius matches the analytic prograde/retrograde photon-orbit radii to ~10⁻⁵ — frame dragging quantitatively right, both senses. | **Conservation drift:** E is conserved identically by construction; L_z and H stay bounded at ~10⁻⁶ (production stepping) on a generic flyby and <2×10⁻⁵ on a near-critical ray that winds the photon shell, where instability amplifies error by ~e^{2π} per orbit. |
 
+Two more studies validate the extended features:
+**free fall vs the Schwarzschild cycloid** (the timelike Hamiltonian
+branch: max relative error 7×10⁻¹⁰ over 44,711 proper-time steps,
+`validation/plots/freefall_cycloid.png`) and **weak-field deflection**
+(α = 4M/b to 0.28% at b = 10³ M with log–log slope −1.008, two-mass
+far-field additivity to 3.3%, `validation/plots/weakfield_deflection.png`).
+
 **In-browser cross-check:** the rendered Schwarzschild shadow radius at
-r₀ = 18 M matches the conserved-quantity prediction for this camera model
-to **0.13%** (37.22 px measured vs 37.27 px predicted, measured from pixel
-statistics of the final-r debug view in headless Chromium — see
-[e2e/reports/phase3.md](e2e/reports/phase3.md), including why the textbook
-local-frame formula differs by 18% for a coordinate-covector camera).
+r₀ = 18 M matches the textbook local-frame prediction
+sin θ = (3√3M/r₀)√(1−2M/r₀) to **0.006%** (44.094 px vs 44.091 px) with
+the tetrad camera — and, before the tetrad refactor, matched the
+*coordinate-camera* prediction (37.27 px, an 18% different number derived
+in [docs/derivations.md](docs/derivations.md) §4) to 0.13%: the same
+integrator hitting each camera convention's own analytic answer. See
+[e2e/reports/phase8.md](e2e/reports/phase8.md).
 
 ## Rendering
 
@@ -112,6 +126,10 @@ bloom → ACES tonemap. Details: [docs/rendering.md](docs/rendering.md).
 | Overlays | ergosphere shell, photon-orbit rings, debug views (step count, \|H\| drift, final r) |
 | Presets | Schwarzschild · Interstellar-ish (a = 0.6) · Near-extremal (a = 0.998) |
 | Screenshot | canvas → PNG download |
+| Camera section | free-fall release (timelike geodesic, frame-dragging drift visible at a > 0), sky-redshift toggle |
+| Disk extras | retrograde flow toggle (watch the ISCO jump), tilt slider (kinematic approximation for a ≠ 0, exact at a = 0) |
+| Multi-mass | linearized N-body lensing: drag masses on the canvas, per-mass sliders, pairwise-\|Φ\| validity warning |
+| HQ still | WebGPU 256-sample progressive accumulation → PNG (auto-disabled without an adapter) |
 
 ## Repository layout
 
@@ -122,15 +140,21 @@ black_hole/
 │   ├── main.ts              # render pipeline (scene → bloom → composite)
 │   ├── camera.ts            # orbit camera
 │   ├── physics.ts           # CPU-side: r_+, r_ISCO, photon orbits
+│   ├── tetrad.ts            # f64 metric ops + camera tetrad (Gram–Schmidt under g)
+│   ├── geodesic.ts          # CPU timelike integrator (free-fall camera)
+│   ├── webgpu.ts            # WebGPU progressive HQ-still session
 │   ├── panel.ts             # control panel (hand-rolled, no widget lib)
-│   ├── gl.ts                # WebGL2 boilerplate
+│   ├── gl.ts                # WebGL2 boilerplate (+ #define shader variants)
 │   └── shaders/
 │       ├── render.frag.glsl # ALL the physics: metric, integrator, disk, stars
+│       │                    #   (+ WEAK_FIELD compile-time multi-mass variant)
+│       ├── hq.wgsl          # WebGPU compute port, line-parallel with the GLSL
 │       ├── blur.frag.glsl   # bright-pass separable Gaussian
 │       ├── composite.frag.glsl # ACES tonemap + overlays
 │       └── fullscreen.vert.glsl
 ├── validation/              # float64 mirror + analytic tests (uv project)
 │   ├── kerr.py              # the integrator, line-parallel with the shader
+│   ├── weakfield.py         # linearized multi-mass mirror
 │   ├── run_validation.py    # 4 studies → plots/ + reports/
 │   ├── plots/  reports/
 ├── e2e/                     # Playwright browser tests, one per phase

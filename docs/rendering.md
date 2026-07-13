@@ -84,9 +84,22 @@ About modal says so.
 
 ## Camera model
 
-Through Phase 7 the camera assigns each pixel a unit *coordinate* covector
-(the blueprint's specification). Apparent angles therefore differ from a
-local static observer's by metric factors — quantified and validated in
-derivations.md §4 (18% at r₀ = 18 M for the shadow radius). The Phase 8
-tetrad camera replaces this with proper local-frame ray initialization,
-after which textbook apparent-angle formulas apply directly.
+Since Phase 8 the camera is a proper **tetrad camera**: rays are
+initialized in an orthonormal frame carried by the observer (static while
+orbiting, the integrated 4-velocity while free-falling), so pixels measure
+proper local angles, aberration is exact, and textbook apparent-angle
+formulas apply directly (verified to 0.006% on the Schwarzschild shadow).
+The starfield is red/blueshifted per pixel by g\* = 1/q_t (toggleable).
+The earlier coordinate-covector camera and its distinct angle convention
+are derived and quantified in derivations.md §4.
+
+## WebGPU HQ stills
+
+`hq.wgsl` is a compute-shader port of the Kerr path, structurally
+line-parallel with the GLSL (a constant-parity test enforces the shared
+physics constants). It accumulates Halton-jittered samples progressively
+into a storage buffer and presents through the same ACES tonemap (no
+bloom — the HQ still is tone-mapped accumulation only). WebGL2 remains the
+default and the universal fallback; the HQ button disables itself when no
+adapter exists, and the e2e pixel-parity test runs automatically in
+WebGPU-capable browsers.

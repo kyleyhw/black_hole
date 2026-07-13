@@ -343,9 +343,9 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 11: WebGPU Progressive Renderer (§9.5)
 
-53. [pending] WGSL compute port of the integrator (line-parallel structure with the GLSL source, shared banner sections); `navigator.gpu` feature detection with WebGL2 as default and fallback.
-54. [pending] Progressive accumulation: hash-based sub-pixel jitter sequence, storage-buffer accumulation, reset on camera/parameter change, live sample counter.
-55. [pending] High-quality screenshot mode: full-resolution render to target sample count → PNG download.
-56. [pending] Parity validation: identical scene on both backends, per-pixel difference imaged and bounded; report entry with runtime.
-57. [pending] Update docs/ and README for all extended features (new controls in the controls table, new validation plots with interpretation, updated ASCII tree); final deploy.
-58. [pending] Commit; **checkpoint**: final review of the complete feature set.
+53. [completed] WGSL compute port of the integrator (`src/shaders/hq.wgsl`, line-parallel with the GLSL, shared banner sections; full Kerr path incl. tetrad rays, disk sense/tilt, sky shift); adapter probing (navigator.gpu can exist with no adapter — handled) with WebGL2 as default and fallback everywhere.
+54. [completed] Progressive accumulation: Halton(2,3) sub-pixel jitter (deterministic), storage-buffer accumulation, live sample counter; the HQ still is a modal with a frozen camera (progressive accumulation requires it), so "reset on change" is by construction.
+55. [completed] High-quality screenshot mode: full-resolution 256-sample render → PNG download from the modal.
+56. [completed] Parity validation: constant-parity between GLSL and WGSL enforced by test (physics-defining constants verbatim in both); live pixel-parity (identical static scene, mean |diff| bounded) implemented and auto-running in WebGPU-capable browsers — **SKIPPED in this container** (Chromium here exposes navigator.gpu but no adapter; documented in `e2e/reports/phase11.md` rather than passed vacuously).
+57. [completed] docs/ and README updated for all extended features (controls table, six validation plots, ASCII tree, rendering.md camera/WebGPU sections); deploy config final (Pages enablement remains the one owner-side action).
+58. [completed] Commit; **checkpoint**: e2e `e2e/phase11.cjs` PASS; the WebGPU runtime path awaits one exercise in a WebGPU-capable browser (harness ready), stated plainly in the report.

@@ -142,6 +142,8 @@ export function buildPanel(
   camera: OrbitCamera,
   onScreenshot: () => void,
   onRelease: () => void,
+  onHqStill: () => void,
+  webGpuAvailable: boolean,
 ): void {
   const panel = el("div", { id: "panel" });
   const refreshers: (() => void)[] = [];
@@ -331,6 +333,16 @@ export function buildPanel(
   const shot = el("button", { class: "preset" }, "Screenshot (PNG)");
   shot.addEventListener("click", onScreenshot);
   pr.body.append(shot);
+  const hq = el("button", { class: "preset", id: "hqBtn" }, "HQ still (WebGPU)");
+  if (webGpuAvailable) {
+    hq.title = "Progressive 256-sample accumulation at full resolution";
+    hq.addEventListener("click", onHqStill);
+  } else {
+    hq.setAttribute("disabled", "");
+    hq.title = "WebGPU is not available in this browser — the WebGL2 renderer remains fully functional.";
+    hq.innerHTML = "HQ still <span style='opacity:.6'>(WebGPU unavailable)</span>";
+  }
+  pr.body.append(hq);
 
   panel.append(bh.root, disk.root, cam.root, q.root, ov.root, mm.root, pr.root);
   document.body.append(panel);

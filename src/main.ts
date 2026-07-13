@@ -4,6 +4,7 @@ import { riscoOf } from "./physics";
 import { buildPanel, type PanelParams } from "./panel";
 import { buildTetrad, staticObserver, metricTerms as metricTermsPublic, type Vec4 } from "./tetrad";
 import { FreeFall } from "./geodesic";
+import { createHqSession, webGpuSupported, type HqSession } from "./webgpu";
 import vertSrc from "./shaders/fullscreen.vert.glsl?raw";
 import sceneSrc from "./shaders/render.frag.glsl?raw";
 import blurSrc from "./shaders/blur.frag.glsl?raw";
@@ -348,7 +349,115 @@ function releaseCamera(): void {
   freefall.release(camera.basis().pos, params.spin);
 }
 
-buildPanel(params, camera, screenshot, releaseCamera);
+// --- HQ still (WebGPU): modal overlay with progressive accumulation ---
+const HQ_SAMPLES = 256;
+
+async function openHqStill(): Promise<void> {
+  if (params.mode === "multi") {
+    alert("HQ stills render the Kerr scene; switch out of multi-mass mode.");
+    return;
+  }
+  const overlay = document.createElement("div");
+  overlay.id = "hq";
+  overlay.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:20;display:flex;" +
+    "flex-direction:column;align-items:center;justify-content:center;gap:10px";
+  const hqCanvas = document.createElement("canvas");
+  const w = Math.min(1600, Math.round(canvas.clientWidth * devicePixelRatio));
+  const h = Math.round((w * canvas.clientHeight) / canvas.clientWidth);
+  hqCanvas.style.cssText = "max-width:92vw;max-height:80vh;border:1px solid #333";
+  const status = document.createElement("div");
+  status.id = "hqStatus";
+  status.style.cssText = "color:#d6d9e0;font:13px system-ui";
+  const row = document.createElement("div");
+  const save = document.createElement("button");
+  save.textContent = "Save PNG";
+  const close = document.createElement("button");
+  close.textContent = "Close";
+  for (const b of [save, close])
+    b.style.cssText = "margin:0 6px;padding:6px 14px;font:13px system-ui;cursor:pointer";
+  row.append(save, close);
+  overlay.append(hqCanvas, status, row);
+  document.body.append(overlay);
+
+  let session: HqSession | null = null;
+  let stopped = false;
+  close.addEventListener("click", () => {
+    stopped = true;
+    session?.destroy();
+    overlay.remove();
+  });
+  save.addEventListener("click", () => {
+    hqCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `kerr-hq-a${params.spin.toFixed(3)}.png`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+  });
+
+  try {
+    const b = camera.basis();
+    const u4: Vec4 = freefall.active ? freefall.fourVelocity() : staticObserver(b.pos, params.spin);
+    const tetrad = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
+    const ci = Math.cos(params.diskIncl);
+    const si = Math.sin(params.diskIncl);
+    session = await createHqSession(hqCanvas, w, h, {
+      camPos: b.pos,
+      right: b.right,
+      up: b.up,
+      forward: b.forward,
+      tanHalfFov: Math.tan(camera.fovY / 2),
+      spin: params.spin,
+      maxSteps: params.maxSteps,
+      diskInner: riscoOf(params.spin, params.diskSense),
+      diskOuter: params.diskOuter,
+      diskGain: params.diskGain,
+      beaming: params.beaming,
+      diskOn: params.diskOn,
+      sense: params.diskSense,
+      diskNormal: [si, 0, ci],
+      diskE1: [ci, 0, -si],
+      diskE2: [0, 1, 0],
+      time: (performance.now() / 1000) % 1800,
+      skyShift: params.skyShift,
+      tetrad: tetrad.map((e): [number, number, number, number] => [e[1], e[2], e[3], e[0]]),
+    });
+    const tick = (): void => {
+      if (stopped || !session) return;
+      if (session.samples() < HQ_SAMPLES) {
+        session.step();
+        status.textContent = `accumulating: ${session.samples()} / ${HQ_SAMPLES} samples`;
+        requestAnimationFrame(tick);
+      } else {
+        status.textContent = `done: ${HQ_SAMPLES} samples — Save PNG to download`;
+      }
+    };
+    tick();
+  } catch (err) {
+    status.textContent = `WebGPU error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+buildPanel(params, camera, screenshot, releaseCamera, openHqStill, webGpuSupported());
+
+// navigator.gpu can exist while no adapter does (headless/software
+// environments); probe asynchronously and downgrade the HQ button honestly.
+if (webGpuSupported()) {
+  void navigator.gpu.requestAdapter().then((adapter) => {
+    if (adapter) return;
+    const hqBtn = document.getElementById("hqBtn");
+    if (!hqBtn) return;
+    hqBtn.setAttribute("disabled", "");
+    hqBtn.setAttribute(
+      "title",
+      "WebGPU adapter unavailable on this device — the WebGL2 renderer remains fully functional.",
+    );
+    hqBtn.innerHTML = "HQ still <span style='opacity:.6'>(WebGPU unavailable)</span>";
+  });
+}
 
 const about = document.getElementById("about") as HTMLDivElement;
 (document.getElementById("aboutLink") as HTMLAnchorElement).addEventListener("click", () =>
