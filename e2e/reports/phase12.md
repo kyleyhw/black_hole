@@ -65,7 +65,7 @@ Artifact: `screenshots/phase12-grid.png` (grid + shadow), and
 ## Animation / realism additions (same round)
 
 - **Cinematic idle orbit.** After `IDLE_ORBIT_DELAY` (4 s) without input the
-  camera drifts azimuthally at 0.05 rad/s; any discrete interaction (tracked
+  camera drifts azimuthally at 0.0125 rad/s (~8 min/rev); any discrete interaction (tracked
   by capture-phase `window` listeners) resets the idle clock, and toggling it
   off freezes the camera. The check lifts the harness freeze, confirms the
   azimuth advances monotonically, then confirms it stops dead when disabled.
