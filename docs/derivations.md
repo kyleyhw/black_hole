@@ -359,6 +359,103 @@ not stylistic choices. The same law with $g_\star = 1/E$ (locally
 normalized rays, §9.2 of the plan) applies to the background starfield for
 a moving camera in Phase 8.
 
+## 8. Camera tetrads, local-frame rays, and free fall
+
+The coordinate-covector camera (§4) is replaced in Phase 8 by proper
+local-frame ray initialization. An observer with 4-velocity $u$ carries an
+orthonormal tetrad $\{e_{(0)}, e_{(1)}, e_{(2)}, e_{(3)}\}$,
+$g(e_{(A)}, e_{(B)}) = \eta_{(A)(B)}$, with $e_{(0)} = u$.
+
+**Construction.** Seed the spatial legs with the flat camera basis
+(right, up, forward) and Gram–Schmidt them against $u$ and each other
+*under the full metric g*:
+
+$$v' = v + g(v, u)\, u \;\; (\text{projection orthogonal to } u,\ g(u,u) = -1),
+\qquad e_{(i)} = \frac{v'_i - \sum_{j<i} g(v'_i, e_{(j)})\, e_{(j)}}
+{\sqrt{g(\cdot,\cdot)}}.$$
+
+A 4×4 Gram–Schmidt per frame on the CPU; the tetrad enters the shader as
+uniforms.
+
+**Ray initialization.** For a pixel whose view direction in the camera
+frame is the unit 3-vector $\hat n$, the *arriving* photon propagates along
+$-\hat n$ locally, with local angular frequency normalized to 1:
+
+$$p_{\rm arr}^\mu = e_{(0)}^\mu - n^i e_{(i)}^\mu .$$
+
+This is exactly null by orthonormality ($g(p,p) = -1 + |\hat n|^2 = 0$) —
+no quadratic to solve, no root to select. The traced (past-directed) ray is
+$q = -p_{\rm arr}$, i.e.
+
+$$q^\mu = -e_{(0)}^\mu + n^i e_{(i)}^\mu, \qquad q_\mu = g_{\mu\nu} q^\nu .$$
+
+Unlike the §4 normalization, $q_t$ now varies across pixels (it is still
+constant along each ray); the integrator carries it as a per-ray constant.
+The locally measured energy is normalized exactly:
+$E_{\rm loc} = -p_{\rm arr} \cdot u = 1$.
+
+**Consistency with §4:** for a static camera both constructions produce
+valid null rays, but they parameterize the image differently — the tetrad
+camera measures *proper* angles. The correct regression is therefore not
+pixel-identity with the old camera but agreement with the local-frame
+shadow formula: for Schwarzschild,
+$\sin\theta_{\rm sh} = (3\sqrt3\, M/r_0)\sqrt{1 - 2M/r_0}$, which the §4
+camera misses by 18% at $r_0 = 18M$ and the tetrad camera must hit.
+
+**Static observer.** At rest in KS coordinates,
+$u^\mu = \delta^\mu_t / \sqrt{-g_{tt}}$ with $-g_{tt} = 1 - f > 0$: static
+observers exist only **outside the ergosphere** ($f < 1$). The camera's
+zoom clamp (r ≥ 2.2 M > 2 M ≥ r_E) guarantees this for the orbit camera.
+
+**Free fall.** Release from rest means initial $u^i = 0$,
+$u^t = 1/\sqrt{-g_{tt}}$ — again requiring an exterior starting point; the
+UI disables release inside the ergosphere. The subsequent worldline solves
+the *timelike* branch of the same Hamiltonian flow,
+
+$$H = \tfrac12 g^{\mu\nu} p_\mu p_\nu = -\tfrac12 \;(m = 1), \qquad
+p_\mu = g_{\mu\nu} u^\nu,$$
+
+integrated per frame on the CPU with the same RK4 + FD-gradient scheme
+(a TypeScript mirror of the shader RHS). The same state reduction as for
+null rays applies: $p_t$ is conserved (it *is* minus the orbital energy),
+so the state is again $(x^i, p_i)$ with $p_t$ a constant set at release:
+$p_t = g_{tt} u^t = -\sqrt{-g_{tt}}$. Frame dragging then induces azimuthal
+drift automatically through $g^{i\nu} p_\nu$. The plunge terminates (and
+the camera resets) at $r \le 1.05\, r_+$.
+
+**Validation (a = 0).** Radial free fall from rest at $r_0$ in
+Schwarzschild obeys the cycloid solution
+
+$$r = \frac{r_0}{2}(1 + \cos\eta), \qquad
+\tau = \sqrt{\frac{r_0^3}{8M}}\,(\eta + \sin\eta),$$
+
+against which the integrated $r(\tau)$ is compared (Phase 8 validation
+task). In KS coordinates the *coordinate* time differs from Schwarzschild
+$t$, but proper time $\tau$ and the KS/Schwarzschild radius agree, so the
+comparison is chart-safe.
+
+## 9. Redshifted starfield
+
+With tetrad-initialized rays ($E_{\rm loc} = 1$), consider a photon emitted
+by a distant static star. Its conserved energy-at-infinity is
+$E = -p_{{\rm arr},t} = q_t$, and the star's emission frame coincides with
+the asymptotic static frame, so
+
+$$g_\star \equiv \frac{\nu_{\rm obs}}{\nu_{\rm em}}
+= \frac{E_{\rm loc}}{E} = \frac{1}{q_t}\quad\text{per pixel}.$$
+
+Applied to the procedural stars exactly as the disk's $g$ (§7): temperature
+$T_{\rm obs} = g_\star T_{\rm em}$ (blackbody shape preserved), bolometric
+brightness $\times\, g_\star^4$.
+
+Limit checks (all implemented as tests):
+- distant static camera: $q_t \to 1$, no shift;
+- static camera at finite $r$: $g_\star = 1/\sqrt{-g_{tt}} > 1$ — the sky
+  is gravitationally *blueshifted* for a deep static observer, as it must
+  be (infalling light gains energy);
+- infalling camera: forward-sky blueshift and aberration concentration,
+  rear-sky redshift.
+
 ## References
 
 <span id="ref-bpt-1972">[1]</span> Bardeen, J. M., Press, W. H., & Teukolsky, S. A. (1972). *Rotating Black Holes: Locally Nonrotating Frames, Energy Extraction, and Scalar Synchrotron Radiation.* ApJ, 178, 347. [Link](https://doi.org/10.1086/151796)

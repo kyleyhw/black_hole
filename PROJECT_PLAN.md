@@ -312,10 +312,10 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 7: Documentation and Release (§7)
 
-34. [pending] `docs/` folder: derivations (from Phase 2), numerics notes (integrator choices, step-size heuristic, FD epsilon rationale), rendering notes (disk model, starfield, bloom), all cross-referenced from a docs index.
-35. [pending] `README.md` (§7): hero image/GIF + live demo link; physics (KS metric, Hamiltonian, KS-over-BL rationale); numerics; the four validation plots each with interpretation; rendering; controls table; ASCII directory tree; documentation index; numbered references (MTW/Chandrasekhar, Bardeen–Press–Teukolsky 1972, James et al. 2015).
-36. [pending] In-browser cross-check (§5.5): rendered shadow angular size vs analytic prediction at known camera distance; record result in README.
-37. [pending] Final deploy, social-preview image, final commit and push.
+34. [completed] `docs/` folder: derivations (Phase 2 + Phase 8 extensions), numerics.md (integrator choices, step-size heuristic, FD epsilon rationale, termination, f32 policy), rendering.md (disk model, starfield + its magnification artifact, bloom/ACES, overlays, camera model), all cross-referenced from docs/README.md.
+35. [completed] `README.md` (§7): hero render + spin-sweep GIF + live demo link; physics (KS metric, Hamiltonian, KS-over-BL rationale); numerics; the four validation plots each with interpretation; rendering; controls table; ASCII directory tree; documentation index; numbered references (BPT 1972, MTW, Chandrasekhar, James et al. 2015, Thorne 1974).
+36. [completed] In-browser cross-check (§5.5): rendered shadow radius vs conserved-quantity prediction at r₀ = 18 M — 0.13% agreement (e2e/reports/phase3.md); recorded in README with the coordinate-camera caveat.
+37. [completed] Final deploy config + social-preview image (docs/img/hero.png). NOTE: GitHub Pages must be enabled once by the repo owner (Settings → Pages → Source: GitHub Actions) — the workflow builds successfully but the deploy step 404s until then; the social preview image is likewise set manually in Settings.
 
 ## Phase 8: Relativistic Camera Dynamics (§9.1, §9.2)
 

@@ -9,7 +9,9 @@ const { spawn } = require("child_process");
 const path = require("path");
 const { PNG } = require("pngjs");
 
-const PORT = 4173;
+// Per-process port avoids collisions with stale servers from interrupted
+// runs (lingering listeners are invisible to ss in this container).
+const PORT = 4200 + (process.pid % 600);
 
 async function startPreview() {
   const proc = spawn("npx", ["vite", "preview", "--port", String(PORT), "--strictPort"], {
@@ -19,6 +21,10 @@ async function startPreview() {
   await new Promise((resolve, reject) => {
     proc.stdout.on("data", (d) => {
       if (d.toString().includes(String(PORT))) resolve();
+    });
+    proc.stderr.on("data", (d) => {
+      const msg = d.toString();
+      if (msg.includes("already in use")) reject(new Error(`port ${PORT} in use`));
     });
     proc.on("exit", (code) => reject(new Error(`vite preview exited: ${code}`)));
     setTimeout(() => reject(new Error("vite preview timed out")), 15000);
