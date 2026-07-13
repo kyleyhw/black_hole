@@ -1,5 +1,6 @@
 import { getGL, createProgram, uniforms } from "./gl";
 import { OrbitCamera } from "./camera";
+import { riscoOf } from "./physics";
 import vertSrc from "./shaders/fullscreen.vert.glsl?raw";
 import fragSrc from "./shaders/render.frag.glsl?raw";
 
@@ -9,6 +10,10 @@ export interface Params {
   maxSteps: number; // integration budget per ray
   debugView: number; // 0 none | 1 steps | 2 |H| drift | 3 final r
   resolutionScale: number;
+  diskOn: boolean;
+  diskOuter: number; // outer edge (M); inner edge is locked to r_ISCO(a)
+  beaming: boolean; // g^4 relativistic beaming
+  diskGain: number; // emission exposure
 }
 
 const params: Params = {
@@ -16,6 +21,13 @@ const params: Params = {
   maxSteps: 400,
   debugView: 0,
   resolutionScale: 1.0,
+  diskOn: true,
+  diskOuter: 14.0,
+  beaming: true,
+  // Exposure such that the emission peak saturates display white before
+  // tonemapping (Phase 6 adds bloom + ACES); the r^-3 falloff otherwise
+  // leaves most of the disk below visible levels.
+  diskGain: 6.0,
 };
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -31,6 +43,12 @@ const u = uniforms(gl, program, [
   "uSpin",
   "uMaxSteps",
   "uDebugView",
+  "uDiskOn",
+  "uDiskInner",
+  "uDiskOuter",
+  "uBeaming",
+  "uDiskGain",
+  "uTime",
 ]);
 
 const camera = new OrbitCamera();
@@ -65,6 +83,13 @@ function frame(now: number): void {
   gl.uniform1f(u.get("uSpin") ?? null, params.spin);
   gl.uniform1i(u.get("uMaxSteps") ?? null, params.maxSteps);
   gl.uniform1i(u.get("uDebugView") ?? null, params.debugView);
+  gl.uniform1i(u.get("uDiskOn") ?? null, params.diskOn ? 1 : 0);
+  gl.uniform1f(u.get("uDiskInner") ?? null, riscoOf(params.spin));
+  gl.uniform1f(u.get("uDiskOuter") ?? null, params.diskOuter);
+  gl.uniform1i(u.get("uBeaming") ?? null, params.beaming ? 1 : 0);
+  gl.uniform1f(u.get("uDiskGain") ?? null, params.diskGain);
+  // Wrap scene time at 30 min to keep f32 precision in the noise advection.
+  gl.uniform1f(u.get("uTime") ?? null, (now / 1000) % 1800);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   requestAnimationFrame(frame);

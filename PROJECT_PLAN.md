@@ -295,11 +295,11 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 5: Relativistic Accretion Disk (§2.5)
 
-23. [pending] Equatorial plane-crossing detection (z sign change) with 2–3 bisection refinements per hit.
-24. [pending] Disk kinematics: Ω(r), r_ISCO(a) (Bardeen–Press–Teukolsky), u^t; redshift g from conserved E, L_z per the Phase 2 derivation.
-25. [pending] Shading: g⁴ beaming × radial emissivity; blackbody color ramp with temperature scaled by g; 2–3 octave value noise in (log r, φ − Ω t) for differential rotation.
-26. [pending] Semi-transparent accumulation: deposit weighted color and continue integrating (lensed upper/lower disk images, photon-ring structure).
-27. [pending] Commit; **checkpoint**: verify the approaching/receding brightness and color asymmetry matches the derived sign conventions.
+23. [completed] Equatorial plane-crossing detection (z sign change) with 3 bisection refinements + linear sub-step interpolation per hit.
+24. [completed] Disk kinematics: Ω(r), r_ISCO(a) (BPT, CPU-side in `src/physics.ts`), corrected u^t; redshift g from conserved E, L_z per the Phase 2 derivation.
+25. [completed] Shading: g⁴ beaming × Novikov–Thorne-ish emissivity (normalized at its 49/36 r_in peak); blackbody color ramp with temperature scaled by g; 3-octave cylindrical value noise in (log r, φ − Ω(r) t) for seamless differential rotation.
+26. [completed] Semi-transparent accumulation: front-to-back compositing, ray continues after each hit (lensed upper/lower disk images and photon-ring structure visible in test renders).
+27. [completed] Commit; **checkpoint**: e2e test `e2e/phase5.cjs` PASS (report: `e2e/reports/phase5.md`) — approaching side (screen left for prograde flow seen from +x) brighter by 2.29× with beaming on vs 1.41× off; ISCO hole shrinks 49 → 31 px from a = 0 to a = 0.998.
 
 ## Phase 6: UI, Overlays, and Post-processing (§3, §4)
 

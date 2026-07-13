@@ -25,6 +25,12 @@ uniform float uTanHalfFov;   // tan(fovY / 2)
 uniform float uSpin;         // a/M in [0, 0.998]
 uniform int uMaxSteps;       // integration step budget (quality)
 uniform int uDebugView;      // 0 none | 1 step count | 2 |H| drift | 3 final r
+uniform int uDiskOn;         // accretion disk toggle
+uniform float uDiskInner;    // inner edge = r_ISCO(a), computed on the CPU
+uniform float uDiskOuter;    // outer edge (M)
+uniform int uBeaming;        // g^4 relativistic beaming toggle
+uniform float uDiskGain;     // emission exposure multiplier
+uniform float uTime;         // scene time (s) for differential rotation
 
 const float R_ESCAPE = 200.0;  // escape radius (M); camera max is 60 M
 const int HARD_CAP = 1024;     // absolute loop bound (driver-safe)
@@ -124,12 +130,10 @@ float stepSize(float r, float rH, float speed) {
 }
 
 // ============================================================================
-// SECTION: STARFIELD — procedural celestial sphere (PROJECT_PLAN §2.6)
+// SECTION: HASH UTILITIES (shared by disk noise and starfield)
 // ============================================================================
-
-const float STAR_CELLS = 400.0;   // cells per cube-face edge
-const float STAR_DENSITY = 0.04;  // fraction of cells containing a star
-
+// 3D fract-sin-free hash -> [0,1); adequate statistical quality for star
+// placement and value noise, far cheaper than integer hashes.
 float hash13(vec3 p) {
   p = fract(p * 0.1031);
   p += dot(p, p.zyx + 31.32);
@@ -140,6 +144,102 @@ vec3 hash33(vec3 p) {
   p += dot(p, p.yxz + 33.33);
   return fract((p.xxy + p.yxx) * p.zyx);
 }
+
+// ============================================================================
+// SECTION: DISK — thin equatorial disk on prograde circular geodesics
+// (PROJECT_PLAN §2.5; derivations.md §6–7)
+// ============================================================================
+
+// Orbital angular velocity Omega = 1/(r^{3/2} + a) and time-dilation factor
+// u^t = (1 + a r^{-3/2}) / sqrt(1 - 3/r + 2 a r^{-3/2})   (M = 1, prograde).
+// Valid for r >= r_ISCO, where the sqrt argument is strictly positive.
+float diskOmega(float r, float a) {
+  return 1.0 / (r * sqrt(r) + a);
+}
+float diskUt(float r, float a) {
+  float inv32 = 1.0 / (r * sqrt(r));  // r^{-3/2}
+  return (1.0 + a * inv32) / sqrt(max(1.0 - 3.0 / r + 2.0 * a * inv32, 1e-6));
+}
+
+// Value noise on a cylinder: q.x unbounded (log r), q.y periodic with
+// integer period `period` so the pattern is seamless in phi.
+float vnoiseCyl(vec2 q, float period) {
+  vec2 i = floor(q);
+  vec2 f = fract(q);
+  f = f * f * (3.0 - 2.0 * f);
+  float iy0 = mod(i.y, period);
+  float iy1 = mod(i.y + 1.0, period);
+  float v00 = hash13(vec3(i.x, iy0, 53.0));
+  float v10 = hash13(vec3(i.x + 1.0, iy0, 53.0));
+  float v01 = hash13(vec3(i.x, iy1, 53.0));
+  float v11 = hash13(vec3(i.x + 1.0, iy1, 53.0));
+  return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
+}
+
+// 3-octave turbulence in co-rotating coordinates (log r, phi - Omega(r) t):
+// each annulus advects at its own Keplerian rate, so the pattern shears
+// differentially — structure for free, no textures.
+float diskPattern(float r, float phi, float a) {
+  float co = phi - diskOmega(r, a) * uTime;
+  // 24 cells around the ring, 3 cells per e-fold of radius at base octave.
+  float n = 0.0;
+  float amp = 0.5;
+  float freq = 1.0;
+  for (int o = 0; o < 3; o++) {
+    n += amp * vnoiseCyl(vec2(log(r) * 3.0 * freq, co * (24.0 * freq) / 6.2831853), 24.0 * freq);
+    amp *= 0.5;
+    freq *= 2.0;
+  }
+  return n;  // in [0, ~0.875]
+}
+
+// Blackbody-ish ramp for relative temperature t (1 = disk inner-edge rest
+// temperature): deep red -> orange -> white -> blue-white. The monotone
+// hue ordering is what matters physically (T_obs = g T scales it exactly);
+// absolute calibration is aesthetic.
+vec3 diskColor(float t) {
+  vec3 c = vec3(0.0);
+  c = mix(vec3(0.45, 0.05, 0.0), vec3(1.0, 0.45, 0.1), smoothstep(0.25, 0.65, t));
+  c = mix(c, vec3(1.0, 0.93, 0.85), smoothstep(0.65, 1.05, t));
+  c = mix(c, vec3(0.75, 0.82, 1.0), smoothstep(1.05, 1.5, t));
+  return c;
+}
+
+// Shade a disk hit at equatorial point xh with ray momentum ph.
+// Returns premultiplied-style (rgb, alpha) for front-to-back accumulation.
+vec4 diskShade(vec3 xh, vec3 ph, float r, float a) {
+  // Redshift g = 1 / [u^t (1 - Omega lambda)]; lambda = L_z/E of the
+  // physical photon = -(x p_y - y p_x) for the traced ray (E = q_t = 1).
+  float lambda = -(xh.x * ph.y - xh.y * ph.x);
+  float g = 1.0 / max(diskUt(r, a) * (1.0 - diskOmega(r, a) * lambda), 1e-3);
+  g = min(g, 10.0);
+
+  // Novikov-Thorne-ish emissivity (1 - sqrt(r_in/r)) / r^3, normalized to
+  // ~1 at its own peak radius (49/36 r_in) so uDiskGain is scale-free.
+  float e = max(1.0 - sqrt(uDiskInner / r), 0.0) / (r * r * r);
+  float ePeak = (1.0 - sqrt(36.0 / 49.0)) / pow(uDiskInner * 49.0 / 36.0, 3.0);
+  float emiss = e / max(ePeak, 1e-9);
+
+  float noise = diskPattern(r, atan(xh.y, xh.x), a);
+  float beam = (uBeaming == 1) ? g * g * g * g : 1.0;
+
+  // Rest-frame temperature profile T ~ r^{-3/4} (thin disk), observed gT.
+  // Normalized at the emissivity-peak radius 49/36 r_in, so tRel = g there:
+  // the brightest annulus renders white at rest and shifts with g.
+  float tRel = g * pow(uDiskInner * 49.0 / (36.0 * r), 0.75);
+  vec3 col = diskColor(tRel) * (uDiskGain * emiss * beam * (0.55 + 0.9 * noise));
+
+  // Wispy semi-transparency; fade the outer rim so the edge is soft.
+  float alpha = (0.5 + 0.35 * noise) * smoothstep(uDiskOuter, 0.85 * uDiskOuter, r);
+  return vec4(col, alpha);
+}
+
+// ============================================================================
+// SECTION: STARFIELD — procedural celestial sphere (PROJECT_PLAN §2.6)
+// ============================================================================
+
+const float STAR_CELLS = 400.0;   // cells per cube-face edge
+const float STAR_DENSITY = 0.04;  // fraction of cells containing a star
 
 void cubeProject(vec3 d, out float face, out vec2 uv) {
   vec3 a = abs(d);
@@ -193,7 +293,9 @@ vec3 starfield(vec3 dir) {
       float ang = acos(clamp(dot(dir, starDir), -1.0, 1.0));
       float radius = pixAngle * (0.5 + 0.35 * b);
       float fall = 1.0 - smoothstep(0.0, radius, ang);
-      col += fall * b * 0.55 * starColor(hash13(seed + 41.0));
+      // 0.3 keeps all but the brightest ~5% of stars below saturation, so
+      // the sky reads as a backdrop rather than competing with the disk.
+      col += fall * b * 0.3 * starColor(hash13(seed + 41.0));
     }
   }
   return col;
@@ -229,6 +331,10 @@ void main() {
   vec3 x = uCamPos;
   vec3 p = dir / initialPt(uCamPos, dir, a);
 
+  // Front-to-back transparent accumulation over disk crossings.
+  vec3 accCol = vec3(0.0);
+  float accA = 0.0;
+
   int steps = 0;
   int outcome = 0;  // 0 budget-exceeded, 1 captured, 2 escaped
   for (int i = 0; i < HARD_CAP; i++) {
@@ -257,8 +363,48 @@ void main() {
     vec3 l;
     metricTerms(x, a, f, l);
     vec3 v = p - f * (dot(l, p) - 1.0) * l;  // dx/dlambda
-    rk4Step(x, p, stepSize(r, rH, length(v)), a);
+    float h = stepSize(r, rH, length(v));
+    vec3 xPrev = x;
+    vec3 pPrev = p;
+    rk4Step(x, p, h, a);
     steps++;
+
+    // Disk plane crossing: sign change of z across the step. Bisect the
+    // step 3 times (each halving re-integrates, so the hit point lies on
+    // the true geodesic), then linearly interpolate the final sub-step.
+    // A high-curvature step straddling z = 0 twice can be missed — the
+    // adaptive step keeps steps ~10% of the local scale, making that rare.
+    if (uDiskOn == 1 && xPrev.z * x.z < 0.0 && accA < 0.99) {
+      vec3 xa = xPrev;
+      vec3 pa = pPrev;
+      float hh = h;
+      for (int b = 0; b < 3; b++) {
+        hh *= 0.5;
+        vec3 xm = xa;
+        vec3 pm = pa;
+        rk4Step(xm, pm, hh, a);
+        if (xa.z * xm.z >= 0.0) {  // crossing is in the second half
+          xa = xm;
+          pa = pm;
+        }
+      }
+      vec3 xb = xa;
+      vec3 pb = pa;
+      rk4Step(xb, pb, hh, a);
+      float denom = xa.z - xb.z;
+      if (abs(denom) < 1e-12) denom = 1e-12;
+      float tf = clamp(xa.z / denom, 0.0, 1.0);
+      vec3 xh = mix(xa, xb, tf);
+      vec3 ph = mix(pa, pb, tf);
+      // Equatorial KS radius: r^2 = rho^2 - a^2 exactly at z = 0.
+      float rh2 = xh.x * xh.x + xh.y * xh.y - a * a;
+      float rHit = sqrt(max(rh2, 0.0));
+      if (rHit > uDiskInner && rHit < uDiskOuter) {
+        vec4 d = diskShade(xh, ph, rHit, a);
+        accCol += (1.0 - accA) * d.a * d.rgb;
+        accA += (1.0 - accA) * d.a;
+      }
+    }
   }
 
   // --- Debug views override normal shading ---
@@ -278,17 +424,15 @@ void main() {
     return;
   }
 
-  vec3 color;
+  vec3 background = vec3(0.0);
   if (outcome == 2) {
     // Escaped: map the final coordinate velocity direction to the sky.
     float f;
     vec3 l;
     metricTerms(x, a, f, l);
     vec3 v = p - f * (dot(l, p) - 1.0) * l;
-    color = starfield(normalize(v));
-  } else {
-    // Captured, or budget-exceeded (photon-shell strugglers): shadow black.
-    color = vec3(0.0);
+    background = starfield(normalize(v));
   }
-  fragColor = vec4(color, 1.0);
+  // Captured or budget-exceeded: black background behind any disk layers.
+  fragColor = vec4(accCol + (1.0 - accA) * background, 1.0);
 }
