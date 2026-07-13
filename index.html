@@ -5,12 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kerr Black Hole Ray Tracer</title>
     <style>
+      :root {
+        color-scheme: dark;
+        --glass: rgba(16, 18, 24, 0.55);
+        --border: rgba(255, 255, 255, 0.14);
+        --text: #d6d9e0;
+        --dim: #8b90a0;
+        --accent: #7fb4ff;
+      }
       html,
       body {
         margin: 0;
         height: 100%;
         overflow: hidden;
         background: #000;
+        font-family: Inter, system-ui, -apple-system, sans-serif;
       }
       #view {
         display: block;
@@ -22,10 +31,218 @@
       #view:active {
         cursor: grabbing;
       }
+      #panel {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        width: 264px;
+        max-height: calc(100vh - 70px);
+        overflow-y: auto;
+        background: var(--glass);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums lining-nums;
+        padding: 4px 0;
+        user-select: none;
+      }
+      #panel details {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        padding: 2px 12px 6px;
+      }
+      #panel details:last-child {
+        border-bottom: none;
+      }
+      #panel summary {
+        cursor: pointer;
+        padding: 6px 0;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: var(--accent);
+        list-style: none;
+      }
+      #panel summary::before {
+        content: "▸ ";
+        color: var(--dim);
+      }
+      #panel details[open] summary::before {
+        content: "▾ ";
+      }
+      #panel .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0;
+      }
+      #panel .row .name {
+        flex: 0 0 88px;
+        color: var(--dim);
+      }
+      #panel .row input[type="range"] {
+        flex: 1;
+        accent-color: var(--accent);
+        min-width: 0;
+      }
+      #panel .row .val {
+        flex: 0 0 62px;
+        text-align: right;
+      }
+      #panel .readout {
+        margin: 8px 0 4px;
+        padding: 8px 10px;
+        background: rgba(127, 180, 255, 0.07);
+        border: 1px solid rgba(127, 180, 255, 0.15);
+        border-radius: 6px;
+        line-height: 1.5;
+      }
+      #panel .readout .note {
+        color: var(--dim);
+        font-size: 11px;
+      }
+      #panel select {
+        background: #14161c;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 2px 6px;
+      }
+      #panel button.preset {
+        display: block;
+        width: 100%;
+        margin: 5px 0;
+        padding: 6px 10px;
+        background: rgba(127, 180, 255, 0.1);
+        border: 1px solid rgba(127, 180, 255, 0.25);
+        border-radius: 6px;
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+        text-align: left;
+      }
+      #panel button.preset:hover {
+        background: rgba(127, 180, 255, 0.22);
+      }
+      #fps {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        color: var(--dim);
+        font: 12px/1.2 ui-monospace, monospace;
+        background: var(--glass);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 8px;
+      }
+      #footer {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        text-align: center;
+        padding: 6px;
+        color: var(--dim);
+        font-size: 12px;
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+        pointer-events: none;
+      }
+      #footer a {
+        color: var(--accent);
+        cursor: pointer;
+        pointer-events: auto;
+        text-decoration: none;
+      }
+      #about {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 10;
+      }
+      #about.open {
+        display: flex;
+      }
+      #about .card {
+        width: min(560px, 92vw);
+        max-height: 80vh;
+        overflow-y: auto;
+        background: rgba(18, 20, 28, 0.92);
+        backdrop-filter: blur(18px);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 22px 26px;
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      #about h2 {
+        margin-top: 0;
+        color: var(--accent);
+      }
+      #about code {
+        display: block;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin: 8px 0;
+        font-size: 13px;
+        overflow-x: auto;
+      }
+      #about .close {
+        float: right;
+        cursor: pointer;
+        color: var(--dim);
+        font-size: 20px;
+      }
     </style>
   </head>
   <body>
     <canvas id="view"></canvas>
+    <div id="fps"></div>
+    <div id="footer">
+      Real-time integration of null geodesics in the Kerr metric — Kerr–Schild
+      coordinates, RK4 — <a id="aboutLink">About</a>
+    </div>
+    <div id="about">
+      <div class="card">
+        <span class="close" id="aboutClose">×</span>
+        <h2>What this is</h2>
+        <p>
+          Every pixel of this image is computed by numerically integrating a
+          <b>null geodesic of the Kerr metric</b> backwards from the camera —
+          no approximations to the light bending, frame dragging, or disk
+          kinematics. The metric is used in Kerr–Schild (Cartesian) form,
+          which is horizon-penetrating and axis-regular:
+        </p>
+        <code>g<sub>μν</sub> = η<sub>μν</sub> + f l<sub>μ</sub> l<sub>ν</sub>,&nbsp;
+          f = 2Mr³/(r⁴ + a²z²)</code>
+        <p>
+          Rays follow Hamilton's equations for
+          <code>H = ½ g<sup>μν</sup>(x) p<sub>μ</sub> p<sub>ν</sub> = 0</code>
+          integrated with RK4 and adaptive steps; conserved E, L<sub>z</sub>
+          and H ≈ 0 monitor the integration live (see the debug views).
+        </p>
+        <p>
+          The accretion disk is matter on circular equatorial geodesics; its
+          color and brightness use the exact redshift factor
+        </p>
+        <code>g = 1 / [ u<sup>t</sup> (1 − Ω λ) ],&nbsp; λ = L<sub>z</sub>/E</code>
+        <p>
+          which packages gravitational redshift, orbital Doppler beaming
+          (intensity ∝ g⁴) and frame dragging in one expression. The inner
+          edge sits at the innermost stable circular orbit r<sub>ISCO</sub>(a)
+          and moves as you change the spin.
+        </p>
+        <p>
+          Physics, numerics, and validation are documented in the
+          <a href="https://github.com/kyleyhw/black_hole" target="_blank" rel="noopener">repository</a>.
+        </p>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -61,7 +61,7 @@ function maskStats(mask, w, h) {
 
   // Hide the DOM controls: the canvas must be the only thing screenshotted.
   // !important: the strip sets display via inline style, which would win.
-  await page.addStyleTag({ content: "#controls{display:none !important}" });
+  await page.addStyleTag({ content: "#panel,#fps,#footer{display:none !important}" });
 
   const setState = (spin, debugView, elevation) =>
     page.evaluate(

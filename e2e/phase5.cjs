@@ -66,7 +66,7 @@ function annulusInnerRadius(png) {
   const t0 = Date.now();
   const server = await startPreview();
   const { browser, page } = await launchPage({ width: W, height: H });
-  await page.addStyleTag({ content: "#controls{display:none !important}" });
+  await page.addStyleTag({ content: "#panel,#fps,#footer{display:none !important}" });
   const outDir = path.join(__dirname, "screenshots");
   fs.mkdirSync(outDir, { recursive: true });
 

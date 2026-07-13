@@ -303,12 +303,12 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 6: UI, Overlays, and Post-processing (§3, §4)
 
-28. [pending] Custom control panel (dark glass, collapsible sections, live physics-unit readouts): spin, mass-as-scale, disk controls with r_in locked to live r_ISCO(a), quality (max steps, resolution scale, bloom), beaming toggle.
-29. [pending] Presets: Schwarzschild (a = 0), Interstellar-ish (a = 0.6), near-extremal (a = 0.998).
-30. [pending] Overlays and diagnostics: ergosphere shell, photon-shell markers, r_+ readout, debug-view dropdown; FPS counter; PNG screenshot button.
-31. [pending] Float-texture render target with resolution scaling; two-pass separable Gaussian bloom; ACES-ish tonemap composite.
-32. [pending] Footer + About modal with the core equations and repo link.
-33. [pending] Commit; **checkpoint**: full interaction pass on the live deploy.
+28. [completed] Custom control panel (dark glass, collapsible sections, live physics-unit readouts): spin, mass-as-scale (display units: r_+ and r_ISCO in km/au for the chosen M☉ — mass is a pure rescale, stated honestly), disk controls with r_in locked to live r_ISCO(a), quality (max steps, resolution scale, bloom), beaming toggle.
+29. [completed] Presets: Schwarzschild (a = 0), Interstellar-ish (a = 0.6), near-extremal (a = 0.998).
+30. [completed] Overlays and diagnostics: ergosphere shell (flat-space schematic march, rim-emphasized) and photon-orbit rings (labeled coordinate-surface markers), r_+ readout, debug-view dropdown; FPS counter; PNG screenshot button.
+31. [completed] RGBA16F render target with resolution scaling; bright-pass + two-pass separable Gaussian bloom at half resolution; ACES tonemap composite (debug views bypass the post pipeline — categorical colors reach the screen exactly).
+32. [completed] Footer + About modal with the core equations and repo link.
+33. [completed] Commit; **checkpoint**: e2e test `e2e/phase6.cjs` PASS (report: `e2e/reports/phase6.md`); phase 1/3/5 tests re-run and re-pass against the HDR pipeline.
 
 ## Phase 7: Documentation and Release (§7)
 
