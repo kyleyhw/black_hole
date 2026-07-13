@@ -14,6 +14,7 @@ uniform float uBloomStrength;
 uniform int uDebugView;  // != 0: pass scene through untouched (exact colors)
 uniform int uErgoOn;
 uniform int uPhotonOn;
+uniform int uGridOn;
 uniform float uSpin;
 uniform vec3 uCamPos;
 uniform vec3 uCamRight;
@@ -90,6 +91,28 @@ void main() {
           ergoF(ph + vec3(0, 0, eps), uSpin) - ergoF(ph - vec3(0, 0, eps), uSpin)));
       float rim = pow(1.0 - abs(dot(grad, dir)), 2.0);
       color = mix(color, vec3(0.35, 0.75, 1.0), 0.18 + 0.35 * rim);
+    }
+  }
+
+  if (uGridOn == 1 && abs(dir.z) > 1e-5) {
+    // Equatorial coordinate grid: circles of constant KS radius (2..20 M,
+    // step 2) and 12 azimuthal spokes — a schematic, unlensed reference
+    // frame for reading off scales, like the other overlays.
+    float t = -uCamPos.z / dir.z;
+    if (t > 0.0) {
+      vec2 q = uCamPos.xy + t * dir.xy;
+      float rho = length(q);
+      float rk = sqrt(max(rho * rho - uSpin * uSpin, 0.0));
+      if (rk > 1.0 && rk < 21.0) {
+        float wpx = 0.012 * rho + 0.015;
+        float dRing = abs(rk - 2.0 * floor(rk / 2.0 + 0.5));
+        float phi = atan(q.y, q.x);
+        float dSpoke = abs(mod(phi + 3.14159265 / 12.0, 3.14159265 / 6.0) - 3.14159265 / 12.0) * rho;
+        float g = 0.0;
+        if (dRing < wpx) g = max(g, 0.30 * (1.0 - dRing / wpx));
+        if (dSpoke < wpx && rk > 2.0) g = max(g, 0.18 * (1.0 - dSpoke / wpx));
+        color = mix(color, vec3(0.55, 0.65, 0.75), g);
+      }
     }
   }
 

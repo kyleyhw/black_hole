@@ -15,16 +15,17 @@ const params: PanelParams = {
   massMsun: 10,
   maxSteps: 400,
   debugView: 0,
-  resolutionScale: 0.75,
+  resolutionScale: 1.0,
   diskOn: true,
   diskOuter: 12.0,
   beaming: true,
   // Exposure such that the emission peak reaches HDR > 1 before the ACES
   // tonemap; the r^-3 falloff otherwise leaves most of the disk invisible.
   diskGain: 9.0,
-  bloomStrength: 0.55,
+  bloomStrength: 0.0,
   ergoOn: false,
   photonOn: false,
+  gridOn: false,
   skyShift: true,
   diskSense: 1,
   diskIncl: 0,
@@ -64,7 +65,7 @@ const uWeak = uniforms(gl, weakProg, [
 const uBlur = uniforms(gl, blurProg, ["uTex", "uTexelSize", "uDir", "uThreshold"]);
 const uComp = uniforms(gl, compositeProg, [
   "uScene", "uBloom", "uResolution", "uBloomStrength",
-  "uErgoOn", "uPhotonOn", "uSpin", "uDebugView",
+  "uErgoOn", "uPhotonOn", "uGridOn", "uSpin", "uDebugView",
   "uCamPos", "uCamRight", "uCamUp", "uCamForward", "uTanHalfFov",
 ]);
 
@@ -316,6 +317,7 @@ function frame(now: number): void {
   gl.uniform1f(uComp.get("uBloomStrength") ?? null, params.bloomStrength);
   gl.uniform1i(uComp.get("uErgoOn") ?? null, params.ergoOn ? 1 : 0);
   gl.uniform1i(uComp.get("uPhotonOn") ?? null, params.photonOn ? 1 : 0);
+  gl.uniform1i(uComp.get("uGridOn") ?? null, params.gridOn ? 1 : 0);
   gl.uniform1f(uComp.get("uSpin") ?? null, params.spin);
   gl.uniform1i(uComp.get("uDebugView") ?? null, params.debugView);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -344,8 +346,15 @@ function screenshot(): void {
   });
 }
 
-function releaseCamera(): void {
-  if (freefall.active) return;
+function toggleFreefall(): void {
+  if (freefall.active) {
+    // Stop mid-fall: keep the current position (the frame loop has synced
+    // the orbit camera to it) unless we are already deep enough that a
+    // static observer no longer exists there — then reset to orbit.
+    freefall.active = false;
+    if (camera.radius < 2.2) camera.reset();
+    return;
+  }
   freefall.release(camera.basis().pos, params.spin);
 }
 
@@ -471,7 +480,7 @@ async function openHqStill(): Promise<void> {
   }
 }
 
-buildPanel(params, camera, screenshot, releaseCamera, openHqStill, webGpuSupported());
+buildPanel(params, camera, screenshot, toggleFreefall, openHqStill, webGpuSupported(), () => freefall.active);
 
 // navigator.gpu can exist while no adapter does (headless/software
 // environments); probe asynchronously and downgrade the HQ button honestly.
@@ -524,7 +533,7 @@ window.__bh = {
   params,
   gl,
   freefall,
-  release: releaseCamera,
+  release: toggleFreefall,
   risco: riscoOf,
   hqParity,
   centerQt: (): number => {

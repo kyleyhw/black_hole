@@ -18,6 +18,7 @@ export interface PanelParams {
   bloomStrength: number;
   ergoOn: boolean;
   photonOn: boolean;
+  gridOn: boolean;
   skyShift: boolean; // starfield redshift/beaming for the camera frame
   diskSense: 1 | -1; // orbital flow: +1 prograde, -1 retrograde
   diskIncl: number; // disk tilt (rad); kinematic approximation for a != 0
@@ -129,13 +130,214 @@ function toggle(label: string, get: () => boolean, set: (v: boolean) => void) {
   return { row, refresh: () => (input.checked = get()) };
 }
 
-function section(title: string, open: boolean): { root: HTMLDetailsElement; body: HTMLElement } {
+// "Learn more" popups: a small (i) button that opens a shared modal with a
+// short physics explanation — education without cluttering the panel.
+let learnModal: HTMLDivElement | null = null;
+
+function openLearn(title: string, html: string): void {
+  if (!learnModal) {
+    learnModal = el("div", { id: "learn" });
+    const card = el("div", { class: "card" });
+    learnModal.append(card);
+    learnModal.addEventListener("click", (e) => {
+      if (e.target === learnModal) learnModal?.classList.remove("open");
+    });
+    document.body.append(learnModal);
+  }
+  const card = learnModal.querySelector(".card") as HTMLDivElement;
+  card.innerHTML = `<span class="close">×</span><h2>${title}</h2>${html}`;
+  (card.querySelector(".close") as HTMLSpanElement).addEventListener("click", () =>
+    learnModal?.classList.remove("open"),
+  );
+  learnModal.classList.add("open");
+}
+
+function infoBtn(title: string, html: string): HTMLButtonElement {
+  const b = el("button", { class: "info", title: `About: ${title}` }, "i");
+  b.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openLearn(title, html);
+  });
+  return b;
+}
+
+function section(
+  title: string,
+  open: boolean,
+  learn?: { title: string; html: string },
+): { root: HTMLDetailsElement; body: HTMLElement } {
   const root = el("details", open ? { open: "" } : {});
-  root.append(el("summary", {}, title));
+  const summary = el("summary", {}, title);
+  if (learn) summary.append(infoBtn(learn.title, learn.html));
+  root.append(summary);
   const body = el("div", { class: "body" });
   root.append(body);
   return { root, body };
 }
+
+const LEARN = {
+  notation: {
+    title: "Units and notation",
+    html: `<p>Everything uses <b>geometrized units</b> (G = c = 1), so the black
+      hole mass M is also a <i>length</i> and a <i>time</i>: all distances are
+      quoted as multiples of M (the "M" on the sliders), and the mass readout
+      just converts that length into kilometres or au. The symbols:</p>
+      <dl class="gloss">
+        <dt>M</dt><dd>black hole mass — sets the one length scale; every
+          radius below is a multiple of it.</dd>
+        <dt>a = J/M</dt><dd>spin parameter (angular momentum per unit mass);
+          shown as a/M ∈ [0, 0.998]. a = 0 is non-spinning (Schwarzschild).</dd>
+        <dt>r</dt><dd>Kerr–Schild radial coordinate — an oblate radius:
+          r⁴ − (ρ² − a²)r² − a²z² = 0, with ρ² = x² + y² + z². Reduces to the
+          ordinary radius when a = 0.</dd>
+        <dt>θ, φ</dt><dd>polar angle from the spin axis and azimuthal angle
+          around it. The grid's spokes are lines of constant φ; its circles are
+          constant r.</dd>
+        <dt>r<sub>+</sub></dt><dd>outer event horizon radius,
+          r<sub>+</sub> = M + √(M² − a²) — the point of no return.</dd>
+        <dt>r<sub>ISCO</sub></dt><dd>innermost stable circular orbit — the
+          disk's inner edge.</dd>
+        <dt>Ω</dt><dd>angular velocity dφ/dt of disk matter as seen from
+          infinity.</dd>
+        <dt>u<sup>t</sup></dt><dd>time component of the disk matter's
+          4-velocity — the time-dilation factor of an orbiting clock.</dd>
+        <dt>E, L<sub>z</sub></dt><dd>a photon's conserved energy and angular
+          momentum about the spin axis (Kerr's symmetries in t and φ).</dd>
+        <dt>λ = L<sub>z</sub>/E</dt><dd>the photon's impact parameter, the
+          quantity the disk redshift depends on.</dd>
+        <dt>g</dt><dd>redshift factor: ratio of received to emitted frequency;
+          g &lt; 1 is reddened, g &gt; 1 blueshifted. Intensity scales as g⁴.</dd>
+        <dt>g<sub>★</sub> = 1/q<sub>t</sub></dt><dd>the same idea for
+          starlight, set by q<sub>t</sub>, the ray's energy in the camera's
+          frame.</dd>
+        <dt>Φ</dt><dd>Newtonian potential in multi-mass mode; the linearization
+          is valid while |Φ| ≪ 1.</dd>
+        <dt>H, p<sub>μ</sub></dt><dd>the super-Hamiltonian and photon momentum
+          the integrator evolves; null rays keep H = 0.</dd>
+      </dl>`,
+  },
+  spin: {
+    title: "Black hole spin",
+    html: `<p>a/M is the angular momentum per unit mass. A spinning black hole
+      <b>drags spacetime around with it</b> (frame dragging): watch the shadow
+      grow asymmetric and D-shaped as you raise the spin, and the innermost
+      stable orbit (r<sub>ISCO</sub>) walk inward — prograde matter can orbit
+      much closer to a fast-spinning hole. The maximum here is a/M = 0.998,
+      the Thorne limit: accretion cannot spin a hole up further, because the
+      disk's own radiation carries away counteracting angular momentum.</p>`,
+  },
+  mass: {
+    title: "Why doesn't mass change the image?",
+    html: `<p>It shouldn't — and that's real physics, not a limitation. The
+      Kerr geometry is <b>scale-free</b>: every length in the problem
+      (horizon, ISCO, photon orbits, your distance) is proportional to M, so
+      a black hole of any mass looks <i>identical</i> when viewed from the
+      proportional distance. Only the physical scale changes: the readouts
+      convert r<sub>+</sub> and r<sub>ISCO</sub> into kilometres or au for
+      your chosen mass. A 10 M<sub>☉</sub> hole and M87* differ on screen
+      only by the caption.</p>
+      <p><b>But isn't lensing stronger for a bigger mass?</b> Yes — a ray
+      passing at a <i>fixed physical impact parameter</i> b bends by
+      α = 4M/b, which grows with M. The catch is what's held fixed. This
+      camera sits at 18 <b>M</b>, so raising M pushes it proportionally
+      farther away too; the ratio M/b that sets every bending angle never
+      moves, and the picture is unchanged. To actually see stronger lensing
+      you must hold something fixed in <i>absolute</i> units — anchor the
+      camera at a fixed number of kilometres, or put a background star at a
+      fixed distance, then a heavier hole looms larger and lenses more of the
+      sky. Anchored in M, only the scale bar changes.</p>`,
+  },
+  disk: {
+    title: "The accretion disk",
+    html: `<p>Matter on circular geodesic orbits from r<sub>ISCO</sub> out to
+      the chosen edge. Each hit is shaded with the exact redshift factor
+      <code>g&nbsp;=&nbsp;1/[u<sup>t</sup>(1&nbsp;−&nbsp;Ωλ)]</code>, which
+      combines gravitational redshift, orbital Doppler shift, and frame
+      dragging. The approaching side is boosted by g⁴ (relativistic beaming)
+      and blue-shifted; the receding side is dimmed and reddened — that's the
+      iconic bright/dark asymmetry. The arcs above and below the shadow are
+      the disk's far side, lensed over and under the hole.</p>`,
+  },
+  beaming: {
+    title: "g⁴ beaming",
+    html: `<p>A moving emitter concentrates its radiation forward. For
+      bolometric (frequency-integrated) intensity the exact factor is g⁴,
+      a consequence of Liouville's theorem (I<sub>ν</sub>/ν³ is invariant
+      along rays). Toggle it off to see how much of the disk's asymmetry is
+      beaming versus geometry.</p>`,
+  },
+  isco: {
+    title: "r_ISCO — the innermost stable circular orbit",
+    html: `<p>Inside this radius no stable circular orbit exists — matter
+      spirals in quickly, so thin disks effectively end here. For a = 0 it
+      sits at 6M; for prograde orbits it shrinks with spin (1.24M at
+      a = 0.998) and for retrograde orbits it grows toward 9M. The disk's
+      inner edge tracks this live as you move the spin slider
+      (Bardeen–Press–Teukolsky 1972).</p>`,
+  },
+  camera: {
+    title: "Cameras and free fall",
+    html: `<p>The orbit camera hovers at fixed position — a "static observer",
+      which only exists outside the ergosphere. Rays are built in the
+      camera's own orthonormal frame (a tetrad), so angles, aberration, and
+      the sky's red/blueshift are exactly what that observer would measure.
+      <b>Release</b> drops the camera onto a timelike geodesic: it falls
+      freely, and at a &gt; 0 frame dragging visibly swings it azimuthally
+      even though it started at rest. Stop the fall any time, or let it
+      plunge to near the horizon and reset.</p>`,
+  },
+  skyshift: {
+    title: "Sky redshift",
+    html: `<p>Starlight reaching a deep or moving observer is shifted: each
+      escaped ray carries g<sub>★</sub> = 1/q<sub>t</sub>, the ratio of
+      locally measured to at-infinity frequency. Star temperatures scale by
+      g<sub>★</sub> and brightness by g<sub>★</sub>⁴. Hovering deep in the
+      potential the sky is <i>blueshifted</i> (infalling light gains energy);
+      free-falling, the forward sky blueshifts and crowds together by
+      aberration while the rear sky reddens.</p>`,
+  },
+  overlays: {
+    title: "Overlays and debug views",
+    html: `<p>The overlays are <b>schematic markers, drawn without lensing</b>
+      — they label coordinate surfaces rather than showing photons.
+      <b>Ergosphere</b>: inside this surface nothing can hover at fixed
+      angles; everything is dragged around the hole. <b>Photon orbits</b>:
+      radii of circular light orbits, prograde (orange) and retrograde
+      (blue) — light passing inside the corresponding critical impact
+      parameter is captured. <b>Grid</b>: circles of constant Kerr–Schild
+      radius every 2M with 30° spokes, for reading off scales. The debug
+      views false-color each ray's step count, energy-conservation error
+      |H|, and final radius — the tools used to validate the integrator.</p>`,
+  },
+  quality: {
+    title: "Quality controls",
+    html: `<p><b>Max steps</b> caps the integration budget per ray; rays that
+      run out are treated as captured (they are photon-shell strugglers
+      winding near the critical orbit). <b>Resolution</b> renders the physics
+      at a fraction of display resolution. <b>Bloom</b> is a purely cosmetic
+      glow on bright HDR pixels.</p>`,
+  },
+  multi: {
+    title: "Multi-mass mode (linearized)",
+    html: `<p>Several point masses with their weak-field metrics
+      <i>superposed</i> — valid only while |Φ| ≪ 1, which is why a validity
+      meter is shown (superposition is a linear-order statement; full GR is
+      nonlinear). Each mass lenses the background and casts an Einstein ring;
+      drag them to watch the caustics move. The dark disks are drawn at the
+      would-be Schwarzschild radii, where the approximation has long broken
+      down — they are regularizations, not horizons.</p>`,
+  },
+  tilt: {
+    title: "Disk tilt",
+    html: `<p>Tilting the disk plane is exact at a = 0 (spherical symmetry
+      makes every plane equatorial) but a <b>kinematic approximation</b> for
+      a ≠ 0: circular orbits off the equator are not Kerr geodesics
+      (Lense–Thirring precession would twist the disk — the Bardeen–Petterson
+      effect). Light propagation stays exact; only the emitter's assumed
+      motion is approximate.</p>`,
+  },
+} as const;
 
 export function buildPanel(
   params: PanelParams,
@@ -144,6 +346,7 @@ export function buildPanel(
   onRelease: () => void,
   onHqStill: () => void,
   webGpuAvailable: boolean,
+  isFreefalling: () => boolean,
 ): void {
   const panel = el("div", { id: "panel" });
   const refreshers: (() => void)[] = [];
@@ -153,7 +356,7 @@ export function buildPanel(
   };
 
   // --- Black hole ---
-  const bh = section("Black hole", true);
+  const bh = section("Black hole", true, LEARN.spin);
   add(bh.body, slider({
     label: "spin a/M",
     min: 0, max: 0.998, step: 0.002,
@@ -170,9 +373,15 @@ export function buildPanel(
   }));
   const readout = el("div", { class: "readout" });
   bh.body.append(readout);
+  const massNote = el("div", { class: "note-row" });
+  massNote.append(
+    el("span", {}, "mass rescales units only — the image is scale-invariant "),
+    infoBtn(LEARN.mass.title, LEARN.mass.html),
+  );
+  bh.body.append(massNote);
 
   // --- Disk ---
-  const disk = section("Accretion disk", true);
+  const disk = section("Accretion disk", true, LEARN.disk);
   add(disk.body, toggle("enabled", () => params.diskOn, (v) => (params.diskOn = v)));
   add(disk.body, slider({
     label: "outer radius",
@@ -188,23 +397,26 @@ export function buildPanel(
     set: (v) => (params.diskGain = v),
     fmt: (v) => v.toFixed(1),
   }));
-  add(disk.body, toggle("g⁴ beaming", () => params.beaming, (v) => (params.beaming = v)));
+  {
+    const r = toggle("g⁴ beaming", () => params.beaming, (v) => (params.beaming = v));
+    r.row.append(infoBtn(LEARN.beaming.title, LEARN.beaming.html));
+    add(disk.body, r);
+  }
   add(disk.body, toggle("retrograde", () => params.diskSense === -1, (v) => (params.diskSense = v ? -1 : 1)));
-  add(disk.body, slider({
-    label: "tilt",
-    min: 0, max: 0.5, step: 0.01,
-    get: () => params.diskIncl,
-    set: (v) => (params.diskIncl = v),
-    fmt: (v) => `${((v * 180) / Math.PI).toFixed(0)}°`,
-  }));
-  const tiltNote = el("div", { class: "readout" },
-    "tilt ≠ 0 is a <i>kinematic approximation</i> for a ≠ 0: circular " +
-    "orbits off the equator are not Kerr geodesics (exact at a = 0). " +
-    "Light propagation stays exact.");
-  disk.body.append(tiltNote);
+  {
+    const r = slider({
+      label: "tilt",
+      min: 0, max: 0.5, step: 0.01,
+      get: () => params.diskIncl,
+      set: (v) => (params.diskIncl = v),
+      fmt: (v) => `${((v * 180) / Math.PI).toFixed(0)}°`,
+    });
+    r.row.append(infoBtn(LEARN.tilt.title, LEARN.tilt.html));
+    add(disk.body, r);
+  }
 
   // --- Quality ---
-  const q = section("Quality", false);
+  const q = section("Quality", false, LEARN.quality);
   add(q.body, slider({
     label: "max steps",
     min: 100, max: 1000, step: 50,
@@ -228,19 +440,27 @@ export function buildPanel(
   }));
 
   // --- Camera ---
-  const cam = section("Camera", false);
-  const rel = el("button", { class: "preset" }, "Release camera (free-fall)");
+  const cam = section("Camera", false, LEARN.camera);
+  const rel = el("button", { class: "preset", id: "freefallBtn" }, "Release camera (free-fall)");
   rel.title =
     "Drop the camera onto a timelike geodesic from rest (valid outside the " +
-    "ergosphere — the orbit camera always is). Double-click to reset.";
+    "ergosphere — the orbit camera always is). Click again to stop the fall.";
   rel.addEventListener("click", onRelease);
   cam.body.append(rel);
-  add(cam.body, toggle("sky redshift", () => params.skyShift, (v) => (params.skyShift = v)));
+  setInterval(() => {
+    rel.textContent = isFreefalling() ? "Stop free fall" : "Release camera (free-fall)";
+  }, 150);
+  {
+    const r = toggle("sky redshift", () => params.skyShift, (v) => (params.skyShift = v));
+    r.row.append(infoBtn(LEARN.skyshift.title, LEARN.skyshift.html));
+    add(cam.body, r);
+  }
 
   // --- Overlays ---
-  const ov = section("Overlays", false);
+  const ov = section("Overlays", false, LEARN.overlays);
   add(ov.body, toggle("ergosphere", () => params.ergoOn, (v) => (params.ergoOn = v)));
   add(ov.body, toggle("photon orbits", () => params.photonOn, (v) => (params.photonOn = v)));
+  add(ov.body, toggle("coordinate grid", () => params.gridOn, (v) => (params.gridOn = v)));
   const dbg = el("label", { class: "row" });
   const sel = el("select");
   for (const [v, name] of [["0", "none"], ["1", "step count"], ["2", "|H| drift"], ["3", "final r"]] as const) {
@@ -252,7 +472,7 @@ export function buildPanel(
   ov.body.append(dbg);
 
   // --- Multi-mass (linearized) mode ---
-  const mm = section("Multi-mass (linearized)", false);
+  const mm = section("Multi-mass (linearized)", false, LEARN.multi);
   add(mm.body, toggle("enable mode", () => params.mode === "multi", (v) => {
     params.mode = v ? "multi" : "kerr";
     renderMasses();
@@ -344,8 +564,24 @@ export function buildPanel(
   }
   pr.body.append(hq);
 
-  panel.append(bh.root, disk.root, cam.root, q.root, ov.root, mm.root, pr.root);
+  // Header: fixes the unit convention (why sliders read "M") and links the
+  // notation glossary so every symbol used below is defined in one place.
+  const header = el("div", { class: "note-row", id: "notation" });
+  header.append(
+    el("span", {}, "units: G = c = 1, lengths in M "),
+    infoBtn(LEARN.notation.title, LEARN.notation.html),
+  );
+
+  panel.append(header, bh.root, disk.root, cam.root, q.root, ov.root, mm.root, pr.root);
   document.body.append(panel);
+
+  // Sidebar show/hide: a persistent tab that collapses the whole panel.
+  const paneToggle = el("button", { id: "panelToggle", title: "Hide/show controls" }, "⟩");
+  paneToggle.addEventListener("click", () => {
+    const hidden = panel.classList.toggle("hidden");
+    paneToggle.textContent = hidden ? "⟨" : "⟩";
+  });
+  document.body.append(paneToggle);
 
   // Live physics readouts, updated on every frame from the render loop.
   updateReadout(readout, params);

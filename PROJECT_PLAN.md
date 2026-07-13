@@ -6,13 +6,16 @@ Portfolio thesis: *physics → numerics → validation → rendering*, in that o
 
 Part I is the specification; Part II is the task list. Tasks reference specification sections (e.g. *§2.2*). Phases 1–11 each end at a **review checkpoint**: work pauses for explicit confirmation before the next phase begins. Phases 0–7 constitute the core release; Phases 8–11 are the extended features (§9), committed scope sequenced after the core release rather than optional stretch goals.
 
-> **Status: all 11 phases complete.** Final certification (2026-07-13): all 8
+> **Status: all 12 phases complete.** Final certification (2026-07-13): all 9
 > browser e2e suites pass against the final build and the float64 validation
 > suite passes 12/12 checks. GitHub Pages is enabled (owner action done) and
 > the WebGPU HQ path has been exercised end-to-end in-container via the
 > SwiftShader software adapter: modal flow, PNG download, and numerical
 > pixel parity between the GLSL and WGSL ports (8×8 block-mean difference
-> 3.56/255 at matched sampling — see e2e/reports/phase11.md).
+> 3.56/255 at matched sampling — see e2e/reports/phase11.md). Phase 12 added
+> the owner-requested educational/UX layer (mass scale-invariance explained,
+> free-fall stop, coordinate grid, click-to-learn popups + a full notation
+> glossary, collapsible sidebar) — see e2e/reports/phase12.md.
 
 ---
 
@@ -357,3 +360,11 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 56. [completed] Parity validation: constant-parity between GLSL and WGSL enforced by test, plus **live numerical pixel parity executed in-container** via the SwiftShader WebGPU adapter (`--enable-unsafe-webgpu --use-webgpu-adapter=swiftshader` on a secure origin): 8×8 block-mean difference 3.56/255 at matched single-sample sampling; the multi-sample brightening was isolated and shown to be the expected linear-space-accumulation effect. Environment quirks (headless mapAsync-after-canvas-configure, adapter GC invalidating map callbacks) handled in the product; details in `e2e/reports/phase11.md`.
 57. [completed] docs/ and README updated for all extended features (controls table, six validation plots, ASCII tree, rendering.md camera/WebGPU sections); deploy config final (Pages enablement remains the one owner-side action).
 58. [completed] Commit; **checkpoint**: e2e `e2e/phase11.cjs` PASS with the full WebGPU runtime path executed (modal, accumulation, download, readback parity) — no skipped checks remain.
+
+## Phase 12: Educational / UX round (owner-requested)
+
+59. [completed] Mass slider clarified: the null result is *physics* (Kerr geometry is scale-free), stated with an in-panel note and a "Why doesn't mass change the image?" popup that also resolves the stronger-lensing-with-mass intuition (α = 4M/b depends on M/b; the camera is anchored in M, so the ratio — and the image — is fixed). Encoded as a falsifiable e2e property: mass 10 → 10⁶ M☉ changes **zero** pixels while the km/au readout changes.
+60. [completed] Free-fall **Stop**: `toggleFreefall()` halts the plunge in place (no reset unless inside R_MIN); the Release button relabels to "Stop free fall" while falling. Defaults changed to resolution 1.00× and bloom 0 per owner request.
+61. [completed] Coordinate-grid overlay (`uGridOn`): equatorial constant-r circles every 2M + twelve 30° spokes, drawn unlensed like the other schematic markers; toggle in the Overlays section; documented in `docs/rendering.md`.
+62. [completed] Click-to-learn: twelve accurate physics popups (ⓘ) on section headers and key rows, plus a **Units & notation** glossary defining every symbol used in the UI (M, a, r, θ, φ, r₊, r_ISCO, Ω, uᵗ, E, L_z, λ, g, g★, Φ, H) and the geometrized-unit convention; About modal cross-references it. Collapsible sidebar (`#panelToggle`).
+63. [completed] Commit; **checkpoint**: e2e `e2e/phase12.cjs` PASS (5/5 — mass pixel-invariance, grid toggle, free-fall stop state machine, glossary-defines-symbols, sidebar collapse); phase6 panel regression re-passes. Report: `e2e/reports/phase12.md`.

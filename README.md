@@ -154,13 +154,15 @@ bloom → ACES tonemap. Details: [docs/rendering.md](docs/rendering.md).
 | Scroll / pinch | zoom, r ∈ [2.2, 60] M |
 | Double-click | reset camera |
 | Spin slider | a/M ∈ [0, 0.998] (Thorne limit) |
-| Mass slider | display scale (readouts in km/au) |
+| Mass slider | display scale only — the image is scale-invariant (readouts in km/au) |
 | Disk section | toggle, outer radius, exposure, g⁴ beaming toggle |
 | Quality section | max integration steps, resolution scale, bloom |
-| Overlays | ergosphere shell, photon-orbit rings, debug views (step count, \|H\| drift, final r) |
+| Overlays | ergosphere shell, photon-orbit rings, coordinate grid (constant-r circles every 2M + 30° spokes), debug views (step count, \|H\| drift, final r) |
 | Presets | Schwarzschild · Interstellar-ish (a = 0.6) · Near-extremal (a = 0.998) |
 | Screenshot | canvas → PNG download |
-| Camera section | free-fall release (timelike geodesic, frame-dragging drift visible at a > 0), sky-redshift toggle |
+| Camera section | free-fall **Release** / **Stop** (timelike geodesic, frame-dragging drift visible at a > 0), sky-redshift toggle |
+| ⓘ buttons | click-to-learn popups on each section, plus a **Units & notation** glossary defining every symbol (a, φ, Ω, uᵗ, g, …) |
+| Sidebar tab | collapse/show the whole control panel |
 | Disk extras | retrograde flow toggle (watch the ISCO jump), tilt slider (kinematic approximation for a ≠ 0, exact at a = 0) |
 | Multi-mass | linearized N-body lensing: drag masses on the canvas, per-mass sliders, pairwise-\|Φ\| validity warning |
 | HQ still | WebGPU 256-sample progressive accumulation → PNG (auto-disabled without an adapter) |

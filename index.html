@@ -125,6 +125,111 @@
       #panel button.preset:hover {
         background: rgba(127, 180, 255, 0.22);
       }
+      #panel.hidden {
+        display: none;
+      }
+      #panelToggle {
+        position: fixed;
+        top: 12px;
+        right: 284px;
+        z-index: 5;
+        width: 26px;
+        height: 26px;
+        background: var(--glass);
+        backdrop-filter: blur(14px);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--dim);
+        font: 13px/1 system-ui;
+        cursor: pointer;
+      }
+      #panel.hidden ~ #panelToggle {
+        right: 12px;
+      }
+      button.info {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 15px;
+        height: 15px;
+        margin-left: 6px;
+        padding: 0;
+        border-radius: 50%;
+        border: 1px solid rgba(127, 180, 255, 0.45);
+        background: rgba(127, 180, 255, 0.12);
+        color: var(--accent);
+        font: italic 600 10px/1 Georgia, serif;
+        cursor: pointer;
+        vertical-align: middle;
+        flex: 0 0 auto;
+      }
+      button.info:hover {
+        background: rgba(127, 180, 255, 0.3);
+      }
+      #panel .note-row {
+        color: var(--dim);
+        font-size: 11px;
+        margin: 2px 0 6px;
+        display: flex;
+        align-items: center;
+      }
+      #learn {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 30;
+      }
+      #learn.open {
+        display: flex;
+      }
+      #learn .card {
+        width: min(480px, 92vw);
+        max-height: 70vh;
+        overflow-y: auto;
+        background: rgba(18, 20, 28, 0.94);
+        backdrop-filter: blur(18px);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px 24px;
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      #learn h2 {
+        margin-top: 0;
+        font-size: 16px;
+        color: var(--accent);
+      }
+      #learn code {
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+      #learn .close {
+        float: right;
+        cursor: pointer;
+        color: var(--dim);
+        font-size: 20px;
+      }
+      #learn .gloss {
+        margin: 8px 0 0;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 4px 14px;
+        font-size: 13px;
+      }
+      #learn .gloss dt {
+        color: var(--accent);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      #learn .gloss dd {
+        margin: 0;
+        color: var(--text);
+      }
       #fps {
         position: fixed;
         top: 12px;
@@ -236,6 +341,12 @@
           (intensity ∝ g⁴) and frame dragging in one expression. The inner
           edge sits at the innermost stable circular orbit r<sub>ISCO</sub>(a)
           and moves as you change the spin.
+        </p>
+        <p>
+          Throughout, geometrized units are used (G = c = 1), so lengths are
+          multiples of the mass M and <code>a = J/M</code> is the spin (angular
+          momentum per unit mass). The panel's <b>Units &amp; notation</b>
+          popup (ⓘ at the top of the controls) defines every symbol.
         </p>
         <p>
           Physics, numerics, and validation are documented in the

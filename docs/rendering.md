@@ -76,11 +76,13 @@ scene (RGBA16F, at resolution-scale × device pixels)
 ## Overlays
 
 The ergosphere shell (fixed-step march of F = r_KS − r_E(θ) with one
-bisection refine, rim-emphasized by grazing angle) and the equatorial
-photon-orbit rings are drawn in the composite pass in **flat space**,
-deliberately: they are coordinate-surface markers, i.e. diagnostics, not
-physical objects — lensing them would misrepresent what they are. The
-About modal says so.
+bisection refine, rim-emphasized by grazing angle), the equatorial
+photon-orbit rings, and the equatorial **coordinate grid** (circles of
+constant Kerr–Schild radius every 2M, from the plane intercept
+t = −z_cam/dir_z, plus twelve 30° azimuthal spokes) are drawn in the
+composite pass in **flat space**, deliberately: they are coordinate-surface
+markers, i.e. diagnostics, not physical objects — lensing them would
+misrepresent what they are. The About modal says so.
 
 ## Camera model
 
