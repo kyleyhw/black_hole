@@ -197,7 +197,12 @@ black_hole/
 │   ├── harness.cjs  phase*.cjs
 │   ├── reports/  screenshots/
 ├── docs/                    # documentation (index: docs/README.md)
-│   ├── derivations.md  numerics.md  rendering.md  img/
+│   ├── derivations.md       # all the mathematics, from first principles
+│   ├── numerics.md          # integrator, step control, termination, precision
+│   ├── rendering.md         # disk, starfield, post-processing, overlays
+│   ├── architecture.md      # software structure, tri-backend parity, testing
+│   ├── validation.md        # verification philosophy + float64 mirror
+│   └── img/
 └── PROJECT_PLAN.md          # full technical spec + phased task tracker
 ```
 
@@ -207,7 +212,9 @@ black_hole/
 - [docs/derivations.md](docs/derivations.md) — all the mathematics, from first principles
 - [docs/numerics.md](docs/numerics.md) — integrator, step control, termination, precision
 - [docs/rendering.md](docs/rendering.md) — disk, starfield, post-processing, overlays
-- [validation/reports/validation.md](validation/reports/validation.md) — numerical validation report
+- [docs/architecture.md](docs/architecture.md) — software structure, tri-backend parity, testing harness
+- [docs/validation.md](docs/validation.md) — verification philosophy and the float64 mirror
+- [validation/reports/validation.md](validation/reports/validation.md) — numerical validation report (per-plot interpretation)
 - [e2e/reports/](e2e/reports/) — per-phase browser test reports
 - [PROJECT_PLAN.md](PROJECT_PLAN.md) — specification and task tracker
 

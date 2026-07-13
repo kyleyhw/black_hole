@@ -1,7 +1,7 @@
 # Phase 10 Test Report — Weak-Field Multi-Mass Mode
 
-**Script:** `e2e/phase10.cjs` · **Runtime:** 153 s (browser) plus the
-float64 deflection study in the validation suite (0.9 s; suite now 12/12) ·
+**Script:** `e2e/phase10.cjs` · **Runtime:** ~95 s (browser) plus the
+float64 deflection study in the validation suite (0.9 s; suite 12/12) ·
 **Result: PASS**
 
 ## What was done
@@ -19,6 +19,11 @@ loop):
    drag at depth 30) without orbiting the camera.
 3. The pairwise-|Φ| validity indicator reads "linear regime" at
    (0.5+0.5)/24 = 0.04 and warns "⚠ linearization degrading" at 1/3 = 0.33.
+   The check **polls** for the indicator's settled text
+   (`waitForFunction`) rather than reading it after a fixed delay: the
+   indicator refreshes on a 200 ms `setInterval`, which a slow software-
+   render multi-mass frame can push past a fixed 400 ms wait, giving a stale
+   read. Polling makes the check robust to render speed.
 4. Switching back to Kerr restores the disk render.
 
 The mode's *physics* is validated in float64 (validation study 6):
@@ -32,7 +37,7 @@ error; see `validation/plots/weakfield_deflection.png`).
 
 | Check | Value | Bound | Status |
 |---|---|---|---|
-| Dark fraction at mass 1 / 2 | 0.93 / 0.82 | > 0.5 | ✓ |
+| Dark fraction at mass 1 / 2 | 0.80 / 0.75 | > 0.5 | ✓ |
 | Kerr↔multi image change | 70% | > 15% | ✓ |
 | Drag displacement | 7.7 M | > 2 M | ✓ |
 | Camera azimuth during drag | 0 | < 10⁻⁹ | ✓ |
@@ -51,3 +56,10 @@ Einstein rings and the caustic structure between them.
    separation 16 give pairwise |Φ| = 0.125 > 0.1 — the test's own
    configuration was outside the linear regime, which is exactly what the
    indicator is for. The test now uses 0.5 M masses at separation 24.
+3. **Validity read raced the indicator's refresh.** With a fixed 400 ms
+   wait, a single software-render multi-mass frame occasionally exceeded the
+   window, so the 200 ms `setInterval` that updates the indicator had not
+   fired after the near-state mutation and the read returned the stale "far"
+   text. Fixed by polling with `waitForFunction` until the expected text
+   (a number for "far", "⚠" for "near") appears — robust to frame time
+   rather than assuming it.
