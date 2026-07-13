@@ -1,0 +1,10 @@
+repos:
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: package-lock.json
+
+  # ruff / ty hooks join in Phase 4 when the Python validation suite
+  # introduces the uv-managed toolchain (PROJECT_PLAN.md task 18).

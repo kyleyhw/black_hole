@@ -247,17 +247,17 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 1. [completed] Initialize repository on branch `claude/kerr-black-hole-raytracer-02tz1w` with `.gitignore` (`.env`, `.DS_Store`, `venv/`, `node_modules/`, `dist/`).
 2. [completed] Commit this development plan as `PROJECT_PLAN.md` (specification + task tracker in one document).
-3. [in-progress] Review this plan with the project owner; obtain explicit confirmation before Phase 1.
+3. [completed] Review this plan with the project owner; obtain explicit confirmation before Phase 1. (Owner directed full execution of the plan to completion, 2026-07-12.)
 
 ## Phase 1: Scaffold, Flat-Space Renderer, and Deployment (§3)
 
-4. [pending] Vite + vanilla TypeScript scaffold; GLSL shaders as `?raw` imports; no framework, no engine.
+4. [completed] Vite + vanilla TypeScript scaffold; GLSL shaders as `?raw` imports; no framework, no engine.
     - Pre-commit hooks (`ruff`, `ty`, `detect-secrets` with baseline) configured once the Python toolchain exists in Phase 4; `detect-secrets` alone configured here.
-5. [pending] WebGL2 boilerplate: context creation, shader compile/link with error surfacing, fullscreen triangle, `precision highp float` enforced, uniform plumbing.
-6. [pending] Pinhole camera: orbit controls (drag azimuth/elevation, clamped ±89°; scroll zoom clamped to r ∈ [2.2 M, 60 M]), per-pixel flat-space ray directions (§4).
-7. [pending] Procedural starfield (§2.6): cube-map-style cell hashing, sub-cell jitter, power-law brightness, temperature color ramp.
-8. [pending] GitHub Pages deployment via Actions on push (`vite build` → static site). Deliverable: navigable starfield on a live URL.
-9. [pending] Commit; **checkpoint**: verify live deploy and camera feel before proceeding.
+5. [completed] WebGL2 boilerplate: context creation, shader compile/link with error surfacing, fullscreen triangle, `precision highp float` enforced, uniform plumbing.
+6. [completed] Pinhole camera: orbit controls (drag azimuth/elevation, clamped ±89°; scroll zoom clamped to r ∈ [2.2 M, 60 M]), per-pixel flat-space ray directions (§4).
+7. [completed] Procedural starfield (§2.6): cube-map-style cell hashing, sub-cell jitter, power-law brightness, temperature color ramp.
+8. [completed] GitHub Pages deployment via Actions on push (`vite build` → static site). Deliverable: navigable starfield on a live URL. (Workflow committed; Pages must be enabled once in repo Settings → Pages → Source: GitHub Actions.)
+9. [completed] Commit; **checkpoint**: e2e test `e2e/phase1.cjs` PASS (report: `e2e/reports/phase1.md`) — starfield renders, orbit camera responds.
 
 ## Phase 2: Derivations (§6 — derive before implementing)
 
