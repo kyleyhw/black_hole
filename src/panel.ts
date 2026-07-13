@@ -21,6 +21,8 @@ export interface PanelParams {
   skyShift: boolean; // starfield redshift/beaming for the camera frame
   diskSense: 1 | -1; // orbital flow: +1 prograde, -1 retrograde
   diskIncl: number; // disk tilt (rad); kinematic approximation for a != 0
+  mode: "kerr" | "multi"; // exact Kerr vs linearized multi-mass
+  masses: { m: number; pos: [number, number, number] }[];
 }
 
 /** GM_sun / c^2 in kilometres — converts lengths in M to km. */
@@ -247,6 +249,75 @@ export function buildPanel(
   dbg.append(el("span", { class: "name" }, "debug view"), sel);
   ov.body.append(dbg);
 
+  // --- Multi-mass (linearized) mode ---
+  const mm = section("Multi-mass (linearized)", false);
+  add(mm.body, toggle("enable mode", () => params.mode === "multi", (v) => {
+    params.mode = v ? "multi" : "kerr";
+    renderMasses();
+  }));
+  const mmNote = el("div", { class: "readout" },
+    "Superposed <i>linearized</i> point-mass metrics (|Φ| ≪ 1). Drag " +
+    "masses on the canvas. Not exact GR — validity shown below.");
+  mm.body.append(mmNote);
+  const massList = el("div");
+  mm.body.append(massList);
+  const massBtns = el("div", { class: "row" });
+  const addBtn = el("button", { class: "preset" }, "+ mass");
+  const rmBtn = el("button", { class: "preset" }, "− mass");
+  addBtn.addEventListener("click", () => {
+    if (params.masses.length >= 6) return;
+    // Place new masses on a ring so they never spawn coincident.
+    const k = params.masses.length;
+    params.masses.push({ m: 0.5, pos: [0, 10 * Math.cos(k), 10 * Math.sin(k)] });
+    renderMasses();
+  });
+  rmBtn.addEventListener("click", () => {
+    if (params.masses.length > 1) params.masses.pop();
+    renderMasses();
+  });
+  massBtns.append(addBtn, rmBtn);
+  mm.body.append(massBtns);
+  const validity = el("div", { class: "readout", id: "validity" });
+  mm.body.append(validity);
+
+  function renderMasses(): void {
+    massList.innerHTML = "";
+    params.masses.forEach((mk, i) => {
+      const row = el("label", { class: "row" });
+      const input = el("input", { type: "range", min: "0.1", max: "3", step: "0.1" });
+      input.value = String(mk.m);
+      const val = el("span", { class: "val" }, `${mk.m.toFixed(1)} M`);
+      input.addEventListener("input", () => {
+        mk.m = Number(input.value);
+        val.textContent = `${mk.m.toFixed(1)} M`;
+      });
+      row.append(el("span", { class: "name" }, `mass ${i + 1}`), input, val);
+      massList.append(row);
+    });
+  }
+  renderMasses();
+
+  function updateValidity(): void {
+    // Largest pairwise (M_i + M_j)/|x_i - x_j| — the leading superposition
+    // error scale — plus each mass alone contributes |Phi| ~ 1/2 at its own
+    // capture radius (regularized, not displayed).
+    let worst = 0;
+    for (let i = 0; i < params.masses.length; i++)
+      for (let j = i + 1; j < params.masses.length; j++) {
+        const A = params.masses[i];
+        const B = params.masses[j];
+        if (!A || !B) continue;
+        const d = Math.hypot(A.pos[0] - B.pos[0], A.pos[1] - B.pos[1], A.pos[2] - B.pos[2]);
+        worst = Math.max(worst, (A.m + B.m) / Math.max(d, 1e-6));
+      }
+    const warn = worst > 0.1;
+    validity.innerHTML =
+      `pairwise |Φ| ≤ ${worst.toFixed(3)} ` +
+      (warn ? '<b style="color:#ff9d66">⚠ linearization degrading</b>' : "(linear regime)");
+  }
+  setInterval(updateValidity, 200);
+  updateValidity();
+
   // --- Presets ---
   const pr = section("Presets", true);
   for (const preset of PRESETS) {
@@ -261,7 +332,7 @@ export function buildPanel(
   shot.addEventListener("click", onScreenshot);
   pr.body.append(shot);
 
-  panel.append(bh.root, disk.root, cam.root, q.root, ov.root, pr.root);
+  panel.append(bh.root, disk.root, cam.root, q.root, ov.root, mm.root, pr.root);
   document.body.append(panel);
 
   // Live physics readouts, updated on every frame from the render loop.

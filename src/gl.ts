@@ -44,7 +44,15 @@ export function createProgram(
   gl: WebGL2RenderingContext,
   vertSrc: string,
   fragSrc: string,
+  defines: readonly string[] = [],
 ): WebGLProgram {
+  // Compile-time variants: #define lines injected after #version, so
+  // alternative physics (e.g. the weak-field metric) costs no runtime
+  // branching in the integration loop.
+  if (defines.length > 0) {
+    const defs = defines.map((d) => `#define ${d}`).join("\n");
+    fragSrc = fragSrc.replace(/^(#version[^\n]*\n)/, `$1${defs}\n`);
+  }
   const program = gl.createProgram();
   if (!program) throw new Error("createProgram failed");
   const vs = compile(gl, gl.VERTEX_SHADER, vertSrc);

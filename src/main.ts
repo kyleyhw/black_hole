@@ -27,6 +27,11 @@ const params: PanelParams = {
   skyShift: true,
   diskSense: 1,
   diskIncl: 0,
+  mode: "kerr",
+  masses: [
+    { m: 1.0, pos: [0, -8, 0] },
+    { m: 0.5, pos: [0, 8, 2] },
+  ],
 };
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -38,6 +43,8 @@ if (!gl.getExtension("EXT_color_buffer_float")) {
 }
 
 const sceneProg = createProgram(gl, vertSrc, sceneSrc);
+// Weak-field multi-mass variant: same source, compile-time metric swap.
+const weakProg = createProgram(gl, vertSrc, sceneSrc, ["WEAK_FIELD"]);
 const blurProg = createProgram(gl, vertSrc, blurSrc);
 const compositeProg = createProgram(gl, vertSrc, compositeSrc);
 
@@ -47,6 +54,11 @@ const uScene = uniforms(gl, sceneProg, [
   "uDiskOn", "uDiskInner", "uDiskOuter", "uBeaming", "uDiskGain", "uTime",
   "uE0", "uE1", "uE2", "uE3", "uSkyShift",
   "uDiskSense", "uDiskNormal", "uDiskE1", "uDiskE2",
+]);
+const uWeak = uniforms(gl, weakProg, [
+  "uResolution", "uCamPos", "uCamRight", "uCamUp", "uCamForward", "uTanHalfFov",
+  "uMaxSteps", "uDebugView", "uDiskOn",
+  "uNMasses", "uMassPos", "uMassM",
 ]);
 const uBlur = uniforms(gl, blurProg, ["uTex", "uTexelSize", "uDir", "uThreshold"]);
 const uComp = uniforms(gl, compositeProg, [
@@ -112,6 +124,66 @@ function ensureTargets(): void {
 }
 
 const camera = new OrbitCamera();
+
+// Mass dragging (multi-mass mode): picks the nearest projected mass within
+// 40 px and moves it in the camera plane at its depth. Attached before the
+// orbit camera so stopImmediatePropagation suppresses orbiting during drag.
+interface MassDrag {
+  index: number;
+  depth: number; // forward-axis distance, held fixed while dragging
+}
+let massDrag: MassDrag | null = null;
+
+function projectMass(pos: readonly number[], b: ReturnType<OrbitCamera["basis"]>):
+  { sx: number; sy: number; depth: number } | null {
+  const q = [pos[0]! - b.pos[0], pos[1]! - b.pos[1], pos[2]! - b.pos[2]];
+  const cz = q[0]! * b.forward[0] + q[1]! * b.forward[1] + q[2]! * b.forward[2];
+  if (cz < 0.5) return null; // behind or too close to the camera
+  const cx = q[0]! * b.right[0] + q[1]! * b.right[1] + q[2]! * b.right[2];
+  const cy = q[0]! * b.up[0] + q[1]! * b.up[1] + q[2]! * b.up[2];
+  const tanHF = Math.tan(camera.fovY / 2);
+  const aspect = canvas.clientWidth / canvas.clientHeight;
+  const sx = (cx / (cz * tanHF * aspect) + 1) * 0.5 * canvas.clientWidth;
+  const sy = (1 - cy / (cz * tanHF)) * 0.5 * canvas.clientHeight;
+  return { sx, sy, depth: cz };
+}
+
+canvas.addEventListener("pointerdown", (e: PointerEvent) => {
+  if (params.mode !== "multi") return;
+  const b = camera.basis();
+  let best: { index: number; d: number; depth: number } | null = null;
+  params.masses.forEach((mk, i) => {
+    const pr = projectMass(mk.pos, b);
+    if (!pr) return;
+    const d = Math.hypot(pr.sx - e.clientX, pr.sy - e.clientY);
+    if (d < 40 && (!best || d < best.d)) best = { index: i, d, depth: pr.depth };
+  });
+  if (best !== null) {
+    massDrag = { index: (best as { index: number }).index, depth: (best as { depth: number }).depth };
+    e.stopImmediatePropagation();
+  }
+});
+canvas.addEventListener("pointermove", (e: PointerEvent) => {
+  if (!massDrag) return;
+  e.stopImmediatePropagation();
+  const b = camera.basis();
+  const tanHF = Math.tan(camera.fovY / 2);
+  const aspect = canvas.clientWidth / canvas.clientHeight;
+  const nx = (e.clientX / canvas.clientWidth) * 2 - 1;
+  const ny = 1 - (e.clientY / canvas.clientHeight) * 2;
+  const cz = massDrag.depth;
+  const cx = nx * tanHF * aspect * cz;
+  const cy = ny * tanHF * cz;
+  const mk = params.masses[massDrag.index];
+  if (!mk) return;
+  mk.pos = [
+    b.pos[0] + b.right[0] * cx + b.up[0] * cy + b.forward[0] * cz,
+    b.pos[1] + b.right[1] * cx + b.up[1] * cy + b.forward[1] * cz,
+    b.pos[2] + b.right[2] * cx + b.up[2] * cy + b.forward[2] * cz,
+  ];
+});
+canvas.addEventListener("pointerup", () => (massDrag = null));
+
 camera.attach(canvas);
 const freefall = new FreeFall();
 
@@ -156,6 +228,27 @@ function frame(now: number): void {
   // --- 1. Scene (physics) into the HDR target at internal resolution ---
   gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fbo);
   gl.viewport(0, 0, scene.w, scene.h);
+  if (params.mode === "multi") {
+    gl.useProgram(weakProg);
+    setCam(uWeak);
+    gl.uniform2f(uWeak.get("uResolution") ?? null, scene.w, scene.h);
+    gl.uniform1i(uWeak.get("uMaxSteps") ?? null, params.maxSteps);
+    gl.uniform1i(uWeak.get("uDebugView") ?? null, params.debugView);
+    gl.uniform1i(uWeak.get("uDiskOn") ?? null, 0);
+    const n = Math.min(params.masses.length, 6);
+    gl.uniform1i(uWeak.get("uNMasses") ?? null, n);
+    const pos = new Float32Array(18);
+    const ms = new Float32Array(6);
+    for (let k = 0; k < n; k++) {
+      const mk = params.masses[k];
+      if (!mk) continue;
+      pos.set(mk.pos, 3 * k);
+      ms[k] = mk.m;
+    }
+    gl.uniform3fv(uWeak.get("uMassPos") ?? null, pos);
+    gl.uniform1fv(uWeak.get("uMassM") ?? null, ms);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  } else {
   gl.useProgram(sceneProg);
   setCam(uScene);
   gl.uniform2f(uScene.get("uResolution") ?? null, scene.w, scene.h);
@@ -183,6 +276,7 @@ function frame(now: number): void {
   gl.uniform3f(uScene.get("uDiskE1") ?? null, ci, 0, -si);
   gl.uniform3f(uScene.get("uDiskE2") ?? null, 0, 1, 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
 
   // --- 2. Bloom: bright-pass horizontal blur, then vertical ---
   gl.useProgram(blurProg);

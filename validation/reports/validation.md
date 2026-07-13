@@ -1,11 +1,11 @@
 # Validation Suite Report
 
-**Command:** `uv run python run_validation.py` · **Total runtime:** 30.1 s
-(convergence 15.9 s, b_crit 1.7 s,
+**Command:** `uv run python run_validation.py` · **Total runtime:** 31.2 s
+(convergence 16.0 s, b_crit 1.8 s,
 photon shell 8.5 s, drift 0.6 s,
-plunge 3.3 s)
+plunge 3.5 s)
 
-**Result: PASS** — 9/9 checks.
+**Result: PASS** — 12/12 checks.
 
 The suite mirrors the shader's exact algorithm (Hamiltonian, RK4,
 central-difference gradients, adaptive step, termination) in float64
@@ -97,6 +97,20 @@ cycloid (dashed) — they must be indistinguishable; bottom panel, relative
 error on a log scale.
 **Max relative error: 7.08e-10 over 44711 steps from r0 = 12 M.**
 
+## 6. Weak-field deflection (`plots/weakfield_deflection.png`)
+
+**What/why:** the Phase 10 linearized multi-mass mode swaps only the
+Hamiltonian's metric; its integrator is checked against the classic
+deflection alpha = 4M/b over b in [10, 1000] M, plus far-field additivity
+for two separated masses.
+
+**Reading the plot:** top, alpha(b) log-log over the 4M/b line — parallel
+means slope -1 with the right coefficient; bottom, the relative residual,
+which follows the ~10M/b second-order envelope: the departures at small b
+are the metric's own higher-order deflection, not integration error.
+**b = 1000: ratio 1.00279; tail slope -1.0080;
+two-mass additivity ratio 1.0330 (vs per-mass 4M_k/b_k sum).**
+
 ## Checks
 
 | Check | Status |
@@ -110,6 +124,9 @@ error on a log scale.
 | near-critical max |H| < 1e-4 | ✓ |
 | near-critical L_z drift < 1e-4 | ✓ |
 | free-fall vs cycloid rel err < 1e-8 | ✓ |
+| deflection 4M/b at b=1e3 within 1% | ✓ |
+| deflection log-log slope -1 (2%) | ✓ |
+| two-mass additivity within 4% | ✓ |
 
 ## Failure handling
 

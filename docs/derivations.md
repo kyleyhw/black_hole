@@ -456,6 +456,49 @@ Limit checks (all implemented as tests):
 - infalling camera: forward-sky blueshift and aberration concentration,
   rear-sky redshift.
 
+## 10. Weak-field multi-mass mode
+
+A separate, clearly labeled **linearized-gravity** mode with $N$ point
+masses. To linear order in the potentials, a static mass distribution has
+
+$$g_{00} = -(1 + 2\Phi), \qquad g_{ij} = (1 - 2\Phi)\,\delta_{ij},
+\qquad g_{0i} = 0, \qquad
+\Phi(\vec x) = -\sum_k \frac{M_k}{|\vec x - \vec x_k|},$$
+
+valid for $|\Phi| \ll 1$. Because the metric is diagonal, the inverse is
+immediate and the null Hamiltonian becomes
+
+$$H = \tfrac12\left[-\frac{p_t^2}{1 + 2\Phi}
+      + \frac{|\vec p\,|^2}{1 - 2\Phi}\right].$$
+
+The same RK4 + central-difference machinery integrates it — only the
+scalar $H(x,p)$ changes, which is the point of the Hamiltonian design.
+
+**Ray initialization.** The spacetime is static (not merely stationary), so
+time orientation is irrelevant to imaging and no tetrad is needed for a
+static camera: set $\vec p = \hat n$ and solve $H = 0$:
+
+$$p_t = |\hat n| \sqrt{\frac{1 + 2\Phi}{1 - 2\Phi}} .$$
+
+**Superposition is a linear-order statement.** Adding the $\Phi$'s of
+several masses solves the linearized field equations only; quadratic
+corrections $O(\Phi^2)$ are dropped. The UI therefore shows a validity
+indicator (the largest pairwise $(M_i + M_j)/|\vec x_i - \vec x_j|$, plus
+the camera's own $|\Phi|$) and warns above $0.1$.
+
+**No horizons exist in this metric** — $\Phi$ diverges at each point mass
+and the linearization fails long before that. Rays are terminated at the
+would-be Schwarzschild radius $|\vec x - \vec x_k| < 2 M_k$ and shaded
+black; this is a *regularization of a broken approximation*, not a horizon.
+
+**Validation target.** The classic weak-field deflection of a ray with
+impact parameter $b$ past a single mass:
+
+$$\alpha = \frac{4M}{b} + O\!\left(\frac{M^2}{b^2}\right),$$
+
+checked over $b \in [10, 10^3]\,M$ (log–log slope $-1$, coefficient 4),
+plus far-field additivity for two separated masses.
+
 ## References
 
 <span id="ref-bpt-1972">[1]</span> Bardeen, J. M., Press, W. H., & Teukolsky, S. A. (1972). *Rotating Black Holes: Locally Nonrotating Frames, Energy Extraction, and Scalar Synchrotron Radiation.* ApJ, 178, 347. [Link](https://doi.org/10.1086/151796)

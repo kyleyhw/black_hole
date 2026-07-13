@@ -335,11 +335,11 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 
 ## Phase 10: Weak-Field Multi-Mass Mode (§9.4)
 
-48. [pending] Extend `docs/derivations.md`: linearized metric, Hamiltonian specialization, validity condition |Φ| ≪ 1, capture-radius rationale. **Checkpoint**: sign-off before implementation.
-49. [pending] Linearized-metric shader variant (compile-time swap of the metric evaluation; integrator untouched); N_max masses via uniform arrays with per-mass capture radii.
-50. [pending] UI: mode switch, draggable masses in the camera plane, per-mass M_k sliders, add/remove masses, max-|Φ| validity indicator with warning threshold, "linearized approximation" label.
-51. [pending] Validation: single-mass deflection angle vs α = 4M/b (log–log, b ∈ [10, 10³] M); two-mass far-field additivity check; report entry.
-52. [pending] Commit; **checkpoint**: review deflection plot and validity-indicator behavior.
+48. [completed] Extend `docs/derivations.md` (§10): linearized metric, Hamiltonian specialization, static-metric ray initialization, validity condition |Φ| ≪ 1, capture-radius rationale (regularization of a broken approximation, not a horizon).
+49. [completed] Linearized-metric shader variant via compile-time `#define WEAK_FIELD` (same source, no runtime branching in the hot loop; RK4/FD machinery shared); up to 6 masses via uniform arrays with per-mass 2M_k capture radii.
+50. [completed] UI: mode switch, pointer-draggable masses in the camera plane (orbit suppressed during drag), per-mass M_k sliders, add/remove masses, pairwise-|Φ| validity indicator warning above 0.1, "linearized" labels in panel and docs.
+51. [completed] Validation (float64, study 6): α = 4M/b to 0.28% at b = 10³ M, log–log slope −1.008, small-b residuals following the ~10M/b second-order envelope (the metric's own higher-order deflection); two-mass far-field additivity to 3.3% vs the per-mass 4Mₖ/bₖ sum. Suite 12/12.
+52. [completed] Commit; **checkpoint**: e2e `e2e/phase10.cjs` PASS (report: `e2e/reports/phase10.md`) — capture disks at predicted screen positions with Einstein rings, drag works without orbiting, validity indicator behaves.
 
 ## Phase 11: WebGPU Progressive Renderer (§9.5)
 

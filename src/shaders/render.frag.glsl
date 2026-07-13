@@ -41,6 +41,34 @@ uniform vec3 uDiskNormal;    // unit disk normal (tilted about y; z-hat at i=0)
 uniform vec3 uDiskE1;        // in-plane basis for the noise angle
 uniform vec3 uDiskE2;
 
+// --- Weak-field multi-mass mode (compiled with #define WEAK_FIELD) ---
+// Linearized metric g_00 = -(1+2 Phi), g_ij = (1-2 Phi) delta_ij with
+// Phi = -sum_k M_k/|x-x_k| (derivations.md §10). Only H, dx/dlambda, ray
+// init, and termination differ; RK4/FD machinery is shared.
+const int MAX_MASSES = 6;
+uniform int uNMasses;
+uniform vec3 uMassPos[MAX_MASSES];
+uniform float uMassM[MAX_MASSES];
+
+float wfPhi(vec3 x) {
+  float phi = 0.0;
+  for (int k = 0; k < MAX_MASSES; k++) {
+    if (k >= uNMasses) break;
+    phi -= uMassM[k] / max(length(x - uMassPos[k]), 1e-6);
+  }
+  return phi;
+}
+
+// Distance to the nearest mass surfaceish (d - 2M_k); negative = captured.
+float wfNearest(vec3 x) {
+  float dmin = 1e9;
+  for (int k = 0; k < MAX_MASSES; k++) {
+    if (k >= uNMasses) break;
+    dmin = min(dmin, length(x - uMassPos[k]) - 2.0 * uMassM[k]);
+  }
+  return dmin;
+}
+
 const float R_ESCAPE = 200.0;  // escape radius (M); camera max is 60 M
 const int HARD_CAP = 1024;     // absolute loop bound (driver-safe)
 
@@ -71,11 +99,16 @@ void metricTerms(vec3 x, float a, out float f, out vec3 l) {
 // Hamiltonian H = 1/2 g^{munu} p_mu p_nu with p_t = pt (§3):
 //   2H = -pt^2 + |p|^2 - f (l^mu p_mu)^2,  l^mu p_mu = dot(l,p) - pt.
 float hamiltonian(vec3 x, vec3 p, float pt, float a) {
+#ifdef WEAK_FIELD
+  float phi = wfPhi(x);
+  return 0.5 * (-pt * pt / (1.0 + 2.0 * phi) + dot(p, p) / (1.0 - 2.0 * phi));
+#else
   float f;
   vec3 l;
   metricTerms(x, a, f, l);
   float lp = dot(l, p) - pt;
   return 0.5 * (-pt * pt + dot(p, p) - f * lp * lp);
+#endif
 }
 
 // ============================================================================
@@ -86,6 +119,10 @@ float hamiltonian(vec3 x, vec3 p, float pt, float a) {
 // pt is the ray's conserved p_t, fixed by the tetrad initialization (§8);
 // it varies across pixels but is constant along each ray.
 void rhs(vec3 x, vec3 p, float pt, float a, out vec3 dx, out vec3 dp) {
+#ifdef WEAK_FIELD
+  dx = p / (1.0 - 2.0 * wfPhi(x));
+  float eps = 2e-3 * max(wfNearest(x), 1.0);
+#else
   float f;
   vec3 l;
   metricTerms(x, a, f, l);
@@ -94,6 +131,7 @@ void rhs(vec3 x, vec3 p, float pt, float a, out vec3 dx, out vec3 dp) {
 
   // eps = 2e-3 max(r,1): optimal-order central-difference step for f32 (§5).
   float eps = 2e-3 * max(ksRadius(x, a), 1.0);
+#endif
   float inv2e = 0.5 / eps;
   dp = -vec3(
       (hamiltonian(x + vec3(eps, 0, 0), p, pt, a) - hamiltonian(x - vec3(eps, 0, 0), p, pt, a)),
@@ -341,6 +379,15 @@ void main() {
   // a fixed 1.02 r_+ would sit OUTSIDE r_ph = 1.077 and clip real physics.
   float rCapture = rH * (1.0 + 0.02 * sqrt(max(1.0 - a * a, 0.0))) + 1e-3;
 
+#ifdef WEAK_FIELD
+  // Static spacetime: time orientation is irrelevant to imaging and angles
+  // differ from proper ones only at O(Phi); coordinate-covector rays with
+  // the exact null pt suffice for this deliberately-approximate mode.
+  vec3 x = uCamPos;
+  vec3 p = dir;
+  float phiCam = wfPhi(x);
+  float pt = sqrt(max((1.0 + 2.0 * phiCam) / (1.0 - 2.0 * phiCam), 1e-6));
+#else
   // Ray from the camera tetrad (§8): local view direction nloc in the
   // (right, up, forward) frame; traced ray q = -e0 + n^i e_i, lowered with
   // the metric at the camera. q_t (the conserved p_t) now varies per pixel.
@@ -353,6 +400,7 @@ void main() {
   float pt = -q4.w + fCam * lq;         // q_t = g_{t nu} q^nu
   vec3 x = uCamPos;
   vec3 p = q4.xyz + fCam * lq * lCam;   // q_i = g_{i nu} q^nu
+#endif
 
   // Front-to-back transparent accumulation over disk crossings.
   vec3 accCol = vec3(0.0);
@@ -362,11 +410,21 @@ void main() {
   int outcome = 0;  // 0 budget-exceeded, 1 captured, 2 escaped
   for (int i = 0; i < HARD_CAP; i++) {
     if (i >= uMaxSteps) break;
+#ifdef WEAK_FIELD
+    float r = length(x);
+    // "Capture" at the would-be Schwarzschild radius of each mass: a
+    // regularization of the broken linear approximation, not a horizon.
+    if (wfNearest(x) < 0.0) {
+      outcome = 1;
+      break;
+    }
+#else
     float r = ksRadius(x, a);
     if (r < rCapture) {
       outcome = 1;
       break;
     }
+#endif
     if (r > R_ESCAPE) {
       outcome = 2;
       break;
@@ -382,11 +440,16 @@ void main() {
       outcome = 1;
       break;
     }
+#ifdef WEAK_FIELD
+    vec3 v = p / (1.0 - 2.0 * wfPhi(x));
+    float h = clamp(0.08 * max(wfNearest(x), 0.05) / max(length(v), 1e-6), 1e-4, 6.0);
+#else
     float f;
     vec3 l;
     metricTerms(x, a, f, l);
     vec3 v = p - f * (dot(l, p) - pt) * l;  // dx/dlambda
     float h = stepSize(r, rH, length(v));
+#endif
     vec3 xPrev = x;
     vec3 pPrev = p;
     rk4Step(x, p, h, pt, a);
@@ -449,12 +512,17 @@ void main() {
   vec3 background = vec3(0.0);
   if (outcome == 2) {
     // Escaped: map the final coordinate velocity direction to the sky.
+#ifdef WEAK_FIELD
+    vec3 v = p / (1.0 - 2.0 * wfPhi(x));
+    background = starfield(normalize(v), 1.0);  // |Phi| << 1: shift negligible
+#else
     float f;
     vec3 l;
     metricTerms(x, a, f, l);
     vec3 v = p - f * (dot(l, p) - pt) * l;
     float gstar = (uSkyShift == 1) ? 1.0 / max(pt, 1e-3) : 1.0;
     background = starfield(normalize(v), gstar);
+#endif
   }
   // Captured or budget-exceeded: black background behind any disk layers.
   fragColor = vec4(accCol + (1.0 - accA) * background, 1.0);

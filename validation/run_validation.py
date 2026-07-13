@@ -7,6 +7,7 @@ Studies (PROJECT_PLAN.md section 5):
   3. Kerr equatorial photon-orbit radii at a = 0.9 vs analytic r_ph.
   4. Conservation drift (E, L_z, H) along a strong-field ray.
   5. Timelike free fall vs the Schwarzschild cycloid (Phase 8 camera).
+  6. Weak-field multi-mass deflection vs 4M/b (Phase 10 mode).
 
 Run:  uv run python run_validation.py
 """
@@ -25,6 +26,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
+from weakfield import Mass, deflection_angle
 from kerr import (
     Outcome,
     Trajectory,
@@ -368,6 +370,58 @@ def study_plunge() -> StudyResult:
     return {"r0": r0, "steps": len(taus), "rel_err": rel_err}
 
 
+# ----------------------------------------------------------------------------
+# Study 6: weak-field deflection (Phase 10 multi-mass mode)
+# ----------------------------------------------------------------------------
+def study_deflection() -> StudyResult:
+    """Deflection angle of the linearized multi-mass integrator vs the
+    classic alpha = 4M/b. Span scales with b (80 b) because the deflection
+    accumulates over path lengths ~ b on both sides of closest approach.
+    Residuals above 4M/b at small b are the metric's own second-order
+    deflection, O((M/b)^2 relative), not integration error - the deep-linear
+    check is the b = 1000 point (|ratio - 1| < 1%)."""
+    masses_one: list[Mass] = [(1.0, (0.0, 0.0, 0.0))]
+    bs = [10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0]
+    alphas = [deflection_angle(b, masses_one, span=max(2000.0, 80.0 * b)) for b in bs]
+    ratios = [a / (4.0 / b) for a, b in zip(alphas, bs)]
+    # Log-log slope over the last three (deep-linear) points.
+    tail = slice(-3, None)
+    slope = float(
+        np.polyfit(np.log(np.array(bs[tail])), np.log(np.array(alphas[tail])), 1)[0]
+    )
+
+    # Two masses at (0, +-5, 0): compare against the sum of the individual
+    # 4 M_k / b_k (b_k the offset from each mass), which removes the purely
+    # geometric part of the difference from 4(M1+M2)/b.
+    masses_two: list[Mass] = [(0.7, (0.0, 5.0, 0.0)), (0.3, (0.0, -5.0, 0.0))]
+    b_two = 100.0
+    a_two = deflection_angle(b_two, masses_two, span=8000.0)
+    a_sum = 4.0 * 0.7 / (b_two - 5.0) + 4.0 * 0.3 / (b_two + 5.0)
+    add_ratio = a_two / a_sum
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 6), sharex=True)
+    ax1.loglog(bs, alphas, "o-", label="integrated")
+    ax1.loglog(bs, [4.0 / b for b in bs], "k--", alpha=0.7, label=r"$4M/b$")
+    ax1.set_ylabel(r"deflection $\alpha$ (rad)")
+    ax1.legend()
+    ax1.set_title("Weak-field deflection, single mass (linearized metric)")
+    ax2.loglog(bs, [abs(r - 1.0) for r in ratios], "o-")
+    ax2.loglog(
+        bs, [10.0 / b for b in bs], "k:", alpha=0.7, label=r"$\sim 10 M/b$ (2nd order)"
+    )
+    ax2.set_ylabel(r"$|\alpha/(4M/b) - 1|$")
+    ax2.set_xlabel("impact parameter b (M)")
+    ax2.legend()
+    fig.tight_layout()
+    fig.savefig(PLOTS / "weakfield_deflection.png", dpi=150)
+    plt.close(fig)
+    return {
+        "ratio_b1000": ratios[-1],
+        "slope_tail": slope,
+        "additivity_ratio": add_ratio,
+    }
+
+
 def main() -> None:
     PLOTS.mkdir(exist_ok=True)
     REPORTS.mkdir(exist_ok=True)
@@ -377,6 +431,7 @@ def main() -> None:
         ("photon_shell", study_photon_shell),
         ("drift", study_drift),
         ("plunge", study_plunge),
+        ("deflection", study_deflection),
     ]
     results: dict[str, StudyResult] = {}
     times: dict[str, float] = {}
@@ -407,6 +462,18 @@ def main() -> None:
         ]
         < 1e-4,
         "free-fall vs cycloid rel err < 1e-8": results["plunge"]["rel_err"] < 1e-8,
+        "deflection 4M/b at b=1e3 within 1%": abs(
+            results["deflection"]["ratio_b1000"] - 1.0
+        )
+        < 0.01,
+        "deflection log-log slope -1 (2%)": abs(
+            results["deflection"]["slope_tail"] + 1.0
+        )
+        < 0.02,
+        "two-mass additivity within 4%": abs(
+            results["deflection"]["additivity_ratio"] - 1.0
+        )
+        < 0.04,
     }
     for label, ok in checks.items():
         print(("PASS " if ok else "FAIL ") + label)
@@ -427,6 +494,7 @@ def write_report(
         results["drift"],
         results["plunge"],
     )
+    df = results["deflection"]
     total = sum(times.values())
     lines = f"""# Validation Suite Report
 
@@ -526,6 +594,20 @@ an observer at rest.
 cycloid (dashed) — they must be indistinguishable; bottom panel, relative
 error on a log scale.
 **Max relative error: {pl["rel_err"]:.2e} over {pl["steps"]} steps from r0 = {pl["r0"]:.0f} M.**
+
+## 6. Weak-field deflection (`plots/weakfield_deflection.png`)
+
+**What/why:** the Phase 10 linearized multi-mass mode swaps only the
+Hamiltonian's metric; its integrator is checked against the classic
+deflection alpha = 4M/b over b in [10, 1000] M, plus far-field additivity
+for two separated masses.
+
+**Reading the plot:** top, alpha(b) log-log over the 4M/b line — parallel
+means slope -1 with the right coefficient; bottom, the relative residual,
+which follows the ~10M/b second-order envelope: the departures at small b
+are the metric's own higher-order deflection, not integration error.
+**b = 1000: ratio {df["ratio_b1000"]:.5f}; tail slope {df["slope_tail"]:.4f};
+two-mass additivity ratio {df["additivity_ratio"]:.4f} (vs per-mass 4M_k/b_k sum).**
 
 ## Checks
 
