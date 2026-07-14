@@ -39,7 +39,7 @@ make the measurement report the physics and nothing else:
   cancelled exactly. This is the correct isolation of the quantity under
   test and is immune to any change in how stars are drawn.
 - **Frozen turbulence** (`window.__bhDiskTime = 0`). The disk texture is
-  fast-forwarded ×8 in the product for visible Keplerian shear; freezing the
+  fast-forwarded ×2 in the product for visible Keplerian shear; freezing the
   clock removes advection variance between screenshots so the geometry and
   beaming are read on a static pattern.
 - **Pinned resolution 0.75.** The test sets `resolutionScale = 0.75`

@@ -121,7 +121,7 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
     // Pump frames explicitly: headless rAF throttles under a raw timeout, and
     // the drift only advances per rendered frame. settleFrames guarantees
     // real frames elapse so the signal is well above the noise floor.
-    await settleFrames(page, 40);
+    await settleFrames(page, 90);
     const azB = await page.evaluate(() => window.__bh.camera.azimuth);
     const drift = azB - azA; // monotone azimuthal advance; magnitude set by frame count
     await page.evaluate(() => (window.__bh.params.autoOrbit = false));
@@ -149,7 +149,7 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
       collapse_ok: hidden && shown,
       autoorbit_drift_rad: drift,
       autoorbit_froze: froze,
-      autoorbit_ok: drift > 0.02 && drift < 1.5 && froze,
+      autoorbit_ok: drift > 0.005 && drift < 1.5 && froze,
       runtime_s: (Date.now() - t0) / 1000,
     };
     console.log(JSON.stringify(results, null, 2));

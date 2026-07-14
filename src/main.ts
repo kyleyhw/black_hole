@@ -202,7 +202,7 @@ const freefall = new FreeFall();
 // on touch and resumes only after stillness. `__bhTest` disables it so the
 // e2e suites see a still camera.
 const IDLE_ORBIT_DELAY = 4.0; // seconds of stillness before drifting
-const IDLE_ORBIT_RATE = 0.0125; // rad/s — ~8 min per revolution, very gentle
+const IDLE_ORBIT_RATE = 0.003125; // rad/s — ~34 min per revolution, barely perceptible
 for (const ev of ["pointerdown", "pointerup", "wheel", "touchstart", "touchend", "keydown"])
   window.addEventListener(ev, () => camera.markInteraction(), { capture: true, passive: true });
 

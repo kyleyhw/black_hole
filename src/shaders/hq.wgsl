@@ -134,7 +134,7 @@ fn vnoiseCyl(q : vec2f, period : f32) -> f32 {
 
 // Texture-phase fast-forward so the differential Keplerian shear is visible
 // (see render.frag.glsl); a pure time remap — g and g^4 beaming are exact.
-const DISK_TIME_SCALE : f32 = 8.0;
+const DISK_TIME_SCALE : f32 = 2.0;
 
 fn diskPattern(r : f32, phi : f32, a : f32) -> f32 {
   let co = phi - diskOmega(r, a) * U[46] * DISK_TIME_SCALE;

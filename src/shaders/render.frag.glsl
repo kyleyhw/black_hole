@@ -225,7 +225,7 @@ float vnoiseCyl(vec2 q, float period) {
 // only a time remap; the instantaneous redshift g and g^4 beaming use
 // Omega(r) directly and are unchanged, so the physics of every pixel's
 // color is exact — this is fast-forward, not a distortion.
-const float DISK_TIME_SCALE = 8.0;
+const float DISK_TIME_SCALE = 2.0;
 
 // 3-octave turbulence in co-rotating coordinates (log r, phi - Omega(r) t):
 // each annulus advects at its own Keplerian rate, so the pattern shears

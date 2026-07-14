@@ -33,8 +33,9 @@ chord-intersection test produces at grazing inclination.
   rate the pattern shears differentially — the disk visibly rotates
   differentially with zero stored textures. The φ direction wraps with an
   integer cell count per octave so there is no seam. The advection is played
-  back at ×8 real coordinate-time (`DISK_TIME_SCALE`) so the shear is visible
-  in seconds rather than the ~minute-per-orbit a 1:1 rate would give; this is
+  back at ×2 real coordinate-time (`DISK_TIME_SCALE`) so the shear is visible
+  over tens of seconds rather than the ~minute-per-orbit a 1:1 rate would
+  give; this is
   a pure time remap of the *texture phase* only — the instantaneous g and g⁴
   factors depend on Ω(r), not on the playback rate, so every pixel's color is
   unchanged. The e2e suite can pin the clock (`__bhDiskTime`) to measure the

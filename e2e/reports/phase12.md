@@ -65,14 +65,14 @@ Artifact: `screenshots/phase12-grid.png` (grid + shadow), and
 ## Animation / realism additions (same round)
 
 - **Cinematic idle orbit.** After `IDLE_ORBIT_DELAY` (4 s) without input the
-  camera drifts azimuthally at 0.0125 rad/s (~8 min/rev); any discrete interaction (tracked
+  camera drifts azimuthally at 0.003125 rad/s (~34 min/rev); any discrete interaction (tracked
   by capture-phase `window` listeners) resets the idle clock, and toggling it
   off freezes the camera. The check lifts the harness freeze, confirms the
   azimuth advances monotonically, then confirms it stops dead when disabled.
   Disabled under the harness by default (`__bhTest`) so every other suite sees
   a still camera.
 - **Visible Keplerian shear.** The disk texture already advected in
-  co-rotating coordinates φ − Ω(r)·t; a ×8 playback scale (`DISK_TIME_SCALE`)
+  co-rotating coordinates φ − Ω(r)·t; a ×2 playback scale (`DISK_TIME_SCALE`)
   makes the differential rotation legible — inner annuli outrun outer ones. It
   is a pure time remap; the instantaneous g and g⁴ beaming use Ω(r) directly
   and are unchanged (verified: phase 11 GLSL↔WGSL parity still 3.2/255).
