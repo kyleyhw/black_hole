@@ -407,6 +407,31 @@ $u^\mu = \delta^\mu_t / \sqrt{-g_{tt}}$ with $-g_{tt} = 1 - f > 0$: static
 observers exist only **outside the ergosphere** ($f < 1$). The camera's
 zoom clamp (r ≥ 2.2 M > 2 M ≥ r_E) guarantees this for the orbit camera.
 
+**Moving observer (the interactive orbit as a worldline).** Rather than a
+sequence of static snapshots, the dragged camera is treated as a genuine
+observer with coordinate 3-velocity $v^i = dx^i/dt$ (Cartesian, finite-
+differenced from its per-frame motion). Its 4-velocity is
+$u^\mu = u^t(1, v^i)$, and $g(u,u) = -1$ fixes $u^t$. In Kerr–Schild form
+($g_{\mu\nu} = \eta_{\mu\nu} + f\,l_\mu l_\nu$, $l_t = 1$),
+
+$$g(u,u) = (u^t)^2\big[-1 + |v|^2 + f\,(1 + \mathbf l\!\cdot\!\mathbf v)^2\big]
+= -1
+\;\Longrightarrow\;
+u^t = \frac{1}{\sqrt{\,B\,}}, \quad
+B \equiv 1 - |v|^2 - f\,(1 + \mathbf l\!\cdot\!\mathbf v)^2 .$$
+
+$v = 0$ gives $B = 1 - f$ and recovers the static observer exactly, so a
+camera at rest renders identically. The tetrad's Gram–Schmidt against
+$e_{(0)} = u$ then tilts the spatial legs, producing **aberration and
+Doppler** ($g_\star = 1/q_t$ shifts with the direction of motion) with no
+extra machinery. Timelike-ness requires $B > 0$; since the interactive drag
+is superluminal in coordinate units under the 1-second $\approx$ 1-$M$ time
+mapping, $v$ is scaled to the largest factor keeping $B \ge B_{\min}$
+(a light-cone clamp capping $u^t$, i.e. the local speed, just below $c$).
+This is a *stationary/accelerated* observer, not a geodesic — a real
+observer with an engine — which is exactly what an arbitrarily-steered
+camera is.
+
 **Free fall.** Release from rest means initial $u^i = 0$,
 $u^t = 1/\sqrt{-g_{tt}}$ — again requiring an exterior starting point; the
 UI disables release inside the ergosphere. The subsequent worldline solves

@@ -43,6 +43,40 @@ export function staticObserver(x: Vec3, a: number): Vec4 {
   return [1 / Math.sqrt(1 - m.f), 0, 0, 0];
 }
 
+// Floor on the normalization bracket B = -g(ũ, ũ), where ũ = (1, v). It caps
+// the coordinate-time Lorentz factor at u^t = 1/sqrt(B_MIN) = 10 (local speed
+// ~0.995 c), so a superluminal drag velocity saturates at the light cone
+// rather than diverging. 0.01 is the value giving that factor-of-10 cap.
+const MOVING_B_MIN = 0.01;
+
+/**
+ * Moving (stationary/accelerated) observer with coordinate 3-velocity v =
+ * dx/dt (Cartesian). u = u^t (1, v) with u^t from g(u, u) = -1, which in
+ * Kerr-Schild form gives u^t = 1/sqrt(B), B = 1 - |v|^2 - f (1 + l.v)^2
+ * (derivations.md §8). v = 0 recovers the static observer exactly. If the
+ * drag is superluminal (B <= MOVING_B_MIN) the velocity is scaled by the
+ * largest s in [0, 1] keeping B = MOVING_B_MIN — the light-cone clamp.
+ */
+export function movingObserver(x: Vec3, v: Vec3, a: number): Vec4 {
+  const m = metricTerms(x, a);
+  const lv = m.l[0] * v[0] + m.l[1] * v[1] + m.l[2] * v[2];
+  const v2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+  let s = 1;
+  if (1 - v2 - m.f * (1 + lv) * (1 + lv) < MOVING_B_MIN) {
+    // B(s) = 1 - s^2 v^2 - f (1 + s l.v)^2 = MOVING_B_MIN, i.e.
+    // A s^2 + Bc s + C = 0 with the coefficients below; take the positive root.
+    const A = v2 + m.f * lv * lv;
+    const Bc = 2 * m.f * lv;
+    const C = MOVING_B_MIN - 1 + m.f;
+    const disc = Math.max(Bc * Bc - 4 * A * C, 0);
+    s = A > 1e-12 ? Math.min(1, Math.max(0, (-Bc + Math.sqrt(disc)) / (2 * A))) : 0;
+  }
+  const slv = s * lv;
+  const B = Math.max(1 - s * s * v2 - m.f * (1 + slv) * (1 + slv), MOVING_B_MIN);
+  const ut = 1 / Math.sqrt(B);
+  return [ut, ut * s * v[0], ut * s * v[1], ut * s * v[2]];
+}
+
 /**
  * Orthonormal tetrad at x for observer 4-velocity u (g(u,u) = -1):
  * e0 = u; spatial legs seeded from the flat camera basis (right, up,

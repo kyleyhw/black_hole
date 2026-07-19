@@ -1,8 +1,7 @@
 # Phase 8 Test Report — Tetrad Camera, Free Fall, Redshifted Starfield
 
-**Script:** `e2e/phase8.cjs` · **Runtime:** 32.5 s (plus regressions:
-phase3 31.6 s, phase5 37.6 s, phase6 114 s, all PASS; validation suite
-re-run with the new plunge study: 9/9 PASS) · **Result: PASS**
+**Script:** `e2e/phase8.cjs` · **Runtime:** 30.0 s · **Result: PASS**
+(full 9-suite sweep re-certified green after the moving-observer camera)
 
 ## What was done
 
@@ -12,6 +11,10 @@ re-run with the new plunge study: 9/9 PASS) · **Result: PASS**
 2. **q_t diagnostic.** For the central (radial) pixel of a static camera,
    q_t = √(1−2M/r₀) exactly — computed CPU-side from the same tetrad the
    shader receives.
+2b. **Moving-observer Doppler.** The interactive orbit is a physical moving
+   observer (derivations.md §8): a velocity toward the forward sky must shift
+   its q_t oppositely to a velocity away (aberration/Doppler), and v = 0 must
+   reproduce the static observer *exactly*.
 3. **Sky redshift toggle** at r = 12 M (g\* = 1.095, brightness ×1.44):
    the background must change visibly.
 4. **Free fall (a = 0.9, released at r = 6 M).** Radius must decrease
@@ -23,9 +26,15 @@ re-run with the new plunge study: 9/9 PASS) · **Result: PASS**
 The tetrad refactor changes the meaning of every pixel (proper local-frame
 angles instead of coordinate-covector angles), replaces the p_t quadratic
 with q = −e₀ + nⁱe₍ᵢ₎, and threads a per-ray p_t through the whole
-integrator — checks 1–2 pin all of that quantitatively. Check 4 exercises
-the timelike branch end-to-end in the app (its numerical accuracy is pinned
-separately by the validation suite's cycloid study, rel. err. 7×10⁻¹⁰).
+integrator — checks 1–2 pin all of that quantitatively. Check 2b pins the
+*moving*-observer generalization used for the interactive orbit: with the
+static q_t = √(8/9) = 0.9428, a 0.3c velocity toward the forward sky
+blueshifts it to q_t = 0.673 (g\* = 1/q_t = 1.49) and away redshifts it to
+1.360 (g\* = 0.74) — opposite, physically-correct shifts — while v = 0
+returns 0.9428 to 16 digits, i.e. the moving observer reduces to the static
+one exactly. Check 4 exercises the timelike branch end-to-end in the app
+(its numerical accuracy is pinned separately by the validation suite's
+cycloid study, rel. err. 7×10⁻¹⁰).
 
 ## Results
 
@@ -33,6 +42,8 @@ separately by the validation suite's cycloid study, rel. err. 7×10⁻¹⁰).
 |---|---|---|---|
 | Shadow radius | 44.094 px vs 44.091 px predicted | ±3% | ✓ (err 0.006%) |
 | Central q_t | 0.9428090415820632 vs √(8/9) | ±10⁻⁶ | ✓ (err 2×10⁻¹⁶) |
+| Moving obs., v = 0 ≡ static | 0.94280904 vs static | < 10⁻¹² | ✓ |
+| Doppler: q_t toward / away (0.3c) | 0.673 / 1.360 vs 0.943 | opposite shifts | ✓ |
 | Sky-shift pixel change | 17.6% | > 2% | ✓ |
 | Free-fall radius | 6 → 2.27 M, monotone | monotone | ✓ |
 | Frame-dragging azimuth drift | 0.018 rad | > 10⁻³ | ✓ |

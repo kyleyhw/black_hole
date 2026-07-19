@@ -101,13 +101,20 @@ misrepresent what they are. The About modal says so.
 ## Camera model
 
 Since Phase 8 the camera is a proper **tetrad camera**: rays are
-initialized in an orthonormal frame carried by the observer (static while
-orbiting, the integrated 4-velocity while free-falling), so pixels measure
-proper local angles, aberration is exact, and textbook apparent-angle
-formulas apply directly (verified to 0.006% on the Schwarzschild shadow).
-The starfield is red/blueshifted per pixel by g\* = 1/q_t (toggleable).
-The earlier coordinate-covector camera and its distinct angle convention
-are derived and quantified in derivations.md §4.
+initialized in an orthonormal frame carried by the observer, so pixels
+measure proper local angles, aberration is exact, and textbook apparent-
+angle formulas apply directly (verified to 0.006% on the Schwarzschild
+shadow). The observer 4-velocity e₀ carried by that frame is: the
+integrated geodesic velocity while **free-falling**; and, while **orbiting
+interactively**, a *moving observer* whose velocity is the camera's own
+finite-differenced coordinate motion (derivations.md §8). So dragging the
+view is a genuine observer worldline — it exhibits aberration and Doppler
+while moving and reduces to the static observer exactly at rest. Because a
+free interactive drag is superluminal in coordinate units, the velocity is
+clamped to the local light cone (max Lorentz factor 10). The starfield is
+red/blueshifted per pixel by g\* = 1/q_t (toggleable). The earlier
+coordinate-covector camera and its distinct angle convention are derived
+and quantified in derivations.md §4.
 
 ## WebGPU HQ stills
 

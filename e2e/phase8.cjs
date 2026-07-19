@@ -68,6 +68,27 @@ function capturedMask(png) {
     const qtExpected = Math.sqrt(1 - 2 / r0);
     const qtErr = Math.abs(qt - qtExpected);
 
+    // --- 2b. Moving-observer Doppler (physical camera worldline) ---
+    // A velocity toward the forward sky must shift its q_t oppositely to a
+    // velocity away (aberration/Doppler), and v = 0 must reproduce the static
+    // observer exactly (movingObserver(v=0) ≡ staticObserver).
+    const mv = await page.evaluate(() => {
+      const fwd = window.__bh.camera.basis().forward; // radial, toward the hole
+      const sp = 0.3; // coordinate 3-velocity magnitude (0.3c, sub-luminal)
+      const to = [fwd[0] * sp, fwd[1] * sp, fwd[2] * sp];
+      const away = [-to[0], -to[1], -to[2]];
+      return {
+        stat: window.__bh.centerQt(),
+        zero: window.__bh.centerQtMoving([0, 0, 0]),
+        toward: window.__bh.centerQtMoving(to),
+        away: window.__bh.centerQtMoving(away),
+      };
+    });
+    const movingZeroOk = Math.abs(mv.zero - mv.stat) < 1e-12;
+    const dopplerOk =
+      Math.abs(mv.toward - mv.stat) > 1e-3 &&
+      (mv.toward - mv.stat) * (mv.away - mv.stat) < 0;
+
     // --- 3. Sky-shift toggle ---
     // r = 12: g* = 1.095 (brightness x1.44) with plenty of visible sky —
     // at r = 6 the shadow's 45-degree angular radius fills the whole frame.
@@ -121,6 +142,11 @@ function capturedMask(png) {
       center_qt: qt,
       center_qt_expected: qtExpected,
       qt_ok: qtErr < 1e-6,
+      moving_qt_static: mv.stat,
+      moving_qt_toward: mv.toward,
+      moving_qt_away: mv.away,
+      moving_zero_ok: movingZeroOk,
+      doppler_ok: dopplerOk,
       skyshift_diffFrac: shiftDiff,
       skyshift_ok: shiftDiff > 0.02,
       freefall_min_r: Math.min(...radii),
@@ -131,7 +157,10 @@ function capturedMask(png) {
       runtime_s: (Date.now() - t0) / 1000,
     };
     console.log(JSON.stringify(results, null, 2));
-    if (!results.shadow_ok || !results.qt_ok || !results.skyshift_ok || !results.freefall_ok)
+    if (
+      !results.shadow_ok || !results.qt_ok || !results.skyshift_ok ||
+      !results.freefall_ok || !results.moving_zero_ok || !results.doppler_ok
+    )
       process.exitCode = 1;
   } catch (err) {
     // Without this, a throw inside try is masked by process.exit() in

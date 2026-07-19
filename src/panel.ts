@@ -292,10 +292,15 @@ const LEARN = {
   },
   camera: {
     title: "Cameras and free fall",
-    html: `<p>The orbit camera hovers at fixed position — a "static observer",
-      which only exists outside the ergosphere. Rays are built in the
-      camera's own orthonormal frame (a tetrad), so angles, aberration, and
-      the sky's red/blueshift are exactly what that observer would measure.
+    html: `<p>The orbit camera is a genuine <b>observer worldline</b>: while
+      you drag, it is a moving observer whose velocity is its own motion, so
+      you see real aberration and Doppler; the instant you let go it is a
+      "static observer" (which only exists outside the ergosphere). Rays are
+      built in the camera's own orthonormal frame (a tetrad), so angles,
+      aberration, and the sky's red/blueshift are exactly what that observer
+      would measure. A free drag is superluminal in coordinate units, so the
+      camera's speed is capped at the local light cone — you cannot orbit
+      faster than light.
       <b>Release</b> drops the camera onto a timelike geodesic: it falls
       freely, and at a &gt; 0 frame dragging visibly swings it azimuthally
       even though it started at rest. Stop the fall any time, or let it

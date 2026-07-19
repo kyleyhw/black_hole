@@ -2,7 +2,9 @@ import { getGL, createProgram, uniforms } from "./gl";
 import { OrbitCamera } from "./camera";
 import { riscoOf } from "./physics";
 import { buildPanel, type PanelParams } from "./panel";
-import { buildTetrad, staticObserver, metricTerms as metricTermsPublic, type Vec4 } from "./tetrad";
+import {
+  buildTetrad, staticObserver, movingObserver, metricTerms as metricTermsPublic, type Vec4,
+} from "./tetrad";
 import { FreeFall } from "./geodesic";
 import { createHqSession, webGpuSupported, type HqSession } from "./webgpu";
 import vertSrc from "./shaders/fullscreen.vert.glsl?raw";
@@ -206,6 +208,18 @@ const IDLE_ORBIT_RATE = 0.003125; // rad/s — ~34 min per revolution, barely pe
 for (const ev of ["pointerdown", "pointerup", "wheel", "touchstart", "touchend", "keydown"])
   window.addEventListener(ev, () => camera.markInteraction(), { capture: true, passive: true });
 
+// Physical moving-observer camera: the interactive orbit is treated as a real
+// observer worldline, so its coordinate velocity (finite-differenced from the
+// per-frame position, EMA-smoothed) drives aberration and Doppler via the
+// tetrad's e0. A large one-frame jump is a teleport (preset/reset), not motion;
+// a camera at rest snaps to exactly static (movingObserver with v=0 ≡ static),
+// which keeps a still frame pixel-identical to the previous static behaviour.
+const CAM_VEL_SMOOTH = 0.3; // EMA weight on the new finite-difference velocity
+const CAM_TELEPORT_M = 3.0; // |Δx| beyond this in one frame is a jump, not motion
+const CAM_REST_EPS = 1e-4; // |Δx| below this is "at rest" → snap velocity to zero
+let prevCamPos: [number, number, number] | null = null;
+let camVel: [number, number, number] = [0, 0, 0];
+
 let lastT = performance.now();
 let fpsEma = 0;
 const fpsNode = document.getElementById("fps") as HTMLDivElement;
@@ -239,9 +253,35 @@ function frame(now: number): void {
   if (!scene || !bloomA || !bloomB) return;
 
   const b = camera.basis();
-  // Camera tetrad: static observer when orbiting, the integrated 4-velocity
-  // when free-falling (aberration and Doppler come from e0 automatically).
-  const u4: Vec4 = freefall.active ? freefall.fourVelocity() : staticObserver(b.pos, params.spin);
+  // Camera tetrad: e0 is the observer 4-velocity, so aberration and Doppler
+  // fall out automatically. Free-fall uses the integrated geodesic velocity;
+  // the interactive orbit is a moving (stationary/accelerated) observer whose
+  // velocity is its own finite-differenced coordinate motion.
+  let u4: Vec4;
+  if (freefall.active) {
+    u4 = freefall.fourVelocity();
+    prevCamPos = null; // so the frame after release is not read as a jump
+    camVel = [0, 0, 0];
+  } else {
+    if (prevCamPos && dt > 1e-4) {
+      const dxx = b.pos[0] - prevCamPos[0];
+      const dxy = b.pos[1] - prevCamPos[1];
+      const dxz = b.pos[2] - prevCamPos[2];
+      const jump = Math.hypot(dxx, dxy, dxz);
+      if (jump < CAM_REST_EPS || jump > CAM_TELEPORT_M) {
+        camVel = [0, 0, 0]; // at rest, or a preset/reset teleport — not motion
+      } else {
+        const k = CAM_VEL_SMOOTH;
+        camVel = [
+          camVel[0] + k * (dxx / dt - camVel[0]),
+          camVel[1] + k * (dxy / dt - camVel[1]),
+          camVel[2] + k * (dxz / dt - camVel[2]),
+        ];
+      }
+    }
+    prevCamPos = [b.pos[0], b.pos[1], b.pos[2]];
+    u4 = movingObserver(b.pos, camVel, params.spin);
+  }
   const tetrad = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
   // Shader packing: vec4 = (xyz spatial, w = t).
   const packLeg = (e: Vec4): [number, number, number, number] => [e[1], e[2], e[3], e[0]];
@@ -555,6 +595,9 @@ declare global {
       hqParity: (w: number, h: number, samples: number) => Promise<number[]>;
       /** Diagnostic: q_t of the central pixel's traced ray (g* = 1/q_t). */
       centerQt: () => number;
+      /** Diagnostic: central-pixel q_t for a moving observer, Cartesian
+       *  velocity v (coordinate units). v = [0,0,0] must equal centerQt(). */
+      centerQtMoving: (v: [number, number, number]) => number;
     };
   }
 }
@@ -571,6 +614,15 @@ window.__bh = {
     const u4: Vec4 = freefall.active ? freefall.fourVelocity() : staticObserver(b.pos, params.spin);
     const [e0, , , e3] = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
     // Central pixel: nloc = (0, 0, 1) -> q = -e0 + e3; lower with g.
+    const q: Vec4 = [e3[0] - e0[0], e3[1] - e0[1], e3[2] - e0[2], e3[3] - e0[3]];
+    const m = metricTermsPublic(b.pos, params.spin);
+    const lq = q[0] + m.l[0] * q[1] + m.l[1] * q[2] + m.l[2] * q[3];
+    return -q[0] + m.f * lq;
+  },
+  centerQtMoving: (v: [number, number, number]): number => {
+    const b = camera.basis();
+    const u4: Vec4 = movingObserver(b.pos, v, params.spin);
+    const [e0, , , e3] = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
     const q: Vec4 = [e3[0] - e0[0], e3[1] - e0[1], e3[2] - e0[2], e3[3] - e0[3]];
     const m = metricTermsPublic(b.pos, params.spin);
     const lq = q[0] + m.l[0] * q[1] + m.l[1] * q[2] + m.l[2] * q[3];
