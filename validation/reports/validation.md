@@ -1,11 +1,12 @@
 # Validation Suite Report
 
-**Command:** `uv run python run_validation.py` · **Total runtime:** 30.9 s
-(convergence 15.8 s, b_crit 1.7 s,
-photon shell 8.5 s, drift 0.6 s,
-plunge 3.4 s)
+**Command:** `uv run python run_validation.py` · **Total runtime:** 23.4 s
+(convergence 11.6 s, b_crit 1.2 s,
+photon shell 6.2 s, drift 0.4 s,
+plunge 2.4 s, deflection 0.6 s,
+PN chirp 0.2 s, superposed KS 0.9 s)
 
-**Result: PASS** — 12/12 checks.
+**Result: PASS** — 20/20 checks.
 
 The suite mirrors the shader's exact algorithm (Hamiltonian, RK4,
 central-difference gradients, adaptive step, termination) in float64
@@ -111,6 +112,57 @@ are the metric's own higher-order deflection, not integration error.
 **b = 1000: ratio 1.00279; tail slope -1.0080;
 two-mass additivity ratio 1.0330 (vs per-mass 4M_k/b_k sum).**
 
+## 7. PN chirp + ringdown fits vs GW150914 (`plots/pn_chirp.png`)
+
+**What/why:** merger mode (Phase 13) drives the animation and the audio
+from TaylorT4 phasing; this study validates the phasing pipeline against
+the best-measured event. Detector-frame masses (source 35.6 + 30.6 Msun at
+z = 0.09) because observed frequencies scale with (1+z)m — see
+docs/derivations.md §12.
+
+**Reading the plot:** top, the GW frequency sweep f_GW(t) from 35 Hz to the
+ISCO on a log axis — the accelerating "chirp"; the dashed red line is the
+remnant's (2,2,0) quasinormal-mode frequency the blend must reach. Bottom,
+the (Newtonian-map) separation in M shrinking toward merger. The chirp
+duration printed in the title is the 35 Hz-to-ISCO segment; the published
+~0.2 s of loud GW150914 signal additionally includes the post-ISCO
+merger portion that PN cannot describe (the schematic blend's job).
+**Chirp 35 Hz→ISCO: 0.091 s (leading-order analytic band
+0.124 s); 0PN integrator self-check err
+3.49e-09; phase-increment convergence |dphi(3.5PN)| =
+0.462 rad < |dphi(1PN)| = 14.410 rad;
+QNM f = 249.3 Hz, tau = 4.14 ms (published
+GW150914 ringdown ≈ 250 Hz, ≈ 4 ms).**
+
+**Inputs:** 35 Hz start (the detector band edge used in the discovery
+paper); orders 1PN–3.5PN for the convergence ladder; QNM from the
+published remnant (M_f = 63.1 Msun, a_f = 0.69).
+
+## 8. Superposed Kerr–Schild binary metric (`plots/superposed_ks.png`)
+
+**What/why:** merger mode renders two holes with the superposed-KS metric
+whose inverse is closed-form via two Sherman–Morrison rank-1 updates
+(docs/derivations.md §11). Three properties are load-bearing: the inverse
+must be *exact* (the integrator differentiates H = ½ p g⁻¹ p), the single-
+hole limit must reduce to Kerr (anchors to everything already validated),
+and the far field must reproduce additive deflection (continuity with the
+weak-field mode).
+
+**Reading the plot:** left, log–log deviation of the binary inverse from
+the exact single-Kerr inverse as the second mass M₂ → 0 — points parallel
+to the slope-1 guide confirm the superposition error is first order in the
+second hole's amplitude, i.e. the limit is approached at the expected rate.
+Right, measured deflection past two equal holes vs the additive prediction
+Σ 4Mₖ/bₖ.
+**Inverse exactness: max |g·g⁻¹ − 1| = 4.44e-16 over 200
+random strong-field points; limit slope 1.000; additivity
+ratio 0.9958 at b = 300 M.**
+
+**Inputs:** generic unequal masses/spins (1.0, a = 0.7 and 0.6, a = −0.18)
+and off-axis probe points — no symmetry to hide index or sign errors;
+static (unboosted) superposition, the Phase 13 scope (the boost enters with
+the Phase 14 shader and carries its own check).
+
 ## Checks
 
 | Check | Status |
@@ -127,6 +179,14 @@ two-mass additivity ratio 1.0330 (vs per-mass 4M_k/b_k sum).**
 | deflection 4M/b at b=1e3 within 1% | ✓ |
 | deflection log-log slope -1 (2%) | ✓ |
 | two-mass additivity within 4% | ✓ |
+| T4 0PN reproduces leading chirp time (0.5%) | ✓ |
+| PN phase converges (|dphi 3.5PN| < |dphi 1PN|) | ✓ |
+| GW150914 chirp 35 Hz to ISCO in [0.05, 0.3] s | ✓ |
+| GW150914 QNM f in [240, 260] Hz | ✓ |
+| GW150914 QNM tau in [3, 5.5] ms | ✓ |
+| binary inverse exact (< 1e-12) | ✓ |
+| single-hole-limit slope 1 (±0.1) | ✓ |
+| binary far-field additivity within 3% | ✓ |
 
 ## Failure handling
 

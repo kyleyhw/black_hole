@@ -43,8 +43,12 @@ Why a mirror rather than testing the shader directly:
   real-time shader cannot be instrumented that finely.
 - **`weakfield.py`** mirrors the linearized multi-mass metric the same way, so
   the `#define WEAK_FIELD` shader variant has its own float64 oracle.
+- **`superposed.py`** mirrors the merger mode's superposed Kerr–Schild binary
+  metric (Sherman–Morrison inverse; derivations.md §11), and **`pn.py`**
+  implements the TaylorT4 phasing and QNM fits that drive the merger
+  animation and chirp audio (derivations.md §12–13).
 
-The six studies and, crucially, **how to read each of their six plots** (what
+The eight studies and, crucially, **how to read each of their plots** (what
 the axes are, what pattern confirms the result, and the measured numbers) are
 documented in the run report:
 [`validation/reports/validation.md`](../validation/reports/validation.md). In
@@ -63,9 +67,15 @@ summary they establish, respectively:
 6. **Weak-field deflection** — the linearized mode recovers 4M/b and two-mass
    far-field additivity, with small-b departures tracking the metric's *own*
    higher-order term, not integrator error.
+7. **PN chirp + ringdown** — the TaylorT4 integrator reproduces the analytic
+   leading-order chirp time at 0PN (3×10⁻⁹), converges order-by-order, and the
+   QNM fits give GW150914's published ringdown (249 Hz, 4.1 ms).
+8. **Superposed-KS binary** — the Sherman–Morrison inverse is exact to
+   machine precision, the single-hole limit is approached at the expected
+   first-order rate (slope 1.00004), and the far field is additive (0.4%).
 
 Run it with `uv run python run_validation.py` from `validation/` (a `uv`
-project; see [§9 of the workflow](../README.md#build)). It writes the six plots
+project; see [§9 of the workflow](../README.md#build)). It writes the plots
 to `validation/plots/` and regenerates the report, exiting non-zero on any
 failed check so it is CI-usable.
 

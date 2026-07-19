@@ -1,0 +1,104 @@
+{
+  "_provenance": {
+    "description": "Curated BBH merger parameters for the merger-mode animation. Median source-frame values (uncertainties omitted) from the GWTC-2.1 catalog, LIGO-Virgo Collaboration, via the GWOSC event portal (https://gwosc.org/eventapi/). Values rounded; consult the DOI for posteriors. BNS/NSBH events excluded (no matter modeling in this renderer).",
+    "catalogDoi": "10.1103/PhysRevD.109.022001",
+    "retrieved": "2026-07-19",
+    "fields": {
+      "m1": "primary source-frame mass, solar masses",
+      "m2": "secondary source-frame mass, solar masses",
+      "chiEff": "effective aligned spin",
+      "mFinal": "remnant source-frame mass, solar masses",
+      "aFinal": "remnant dimensionless spin",
+      "dlMpc": "luminosity distance, Mpc",
+      "z": "redshift (audio synthesis uses detector-frame masses (1+z)m)",
+      "fLow": "GW frequency (Hz, detector frame) at which the animation/audio starts",
+      "audioShiftOct": "default frequency shift in octaves for audibility (0 = as detected; labeled in UI, as in LIGO's released audio)"
+    }
+  },
+  "events": [
+    {
+      "name": "GW150914",
+      "date": "2015-09-14",
+      "m1": 35.6,
+      "m2": 30.6,
+      "chiEff": -0.01,
+      "mFinal": 63.1,
+      "aFinal": 0.69,
+      "dlMpc": 440,
+      "z": 0.09,
+      "fLow": 35,
+      "audioShiftOct": 0,
+      "note": "The first direct detection of gravitational waves."
+    },
+    {
+      "name": "GW151226",
+      "date": "2015-12-26",
+      "m1": 13.7,
+      "m2": 7.7,
+      "chiEff": 0.18,
+      "mFinal": 20.5,
+      "aFinal": 0.74,
+      "dlMpc": 450,
+      "z": 0.09,
+      "fLow": 35,
+      "audioShiftOct": 0,
+      "note": "Light system - long inspiral chirping to high frequency."
+    },
+    {
+      "name": "GW170104",
+      "date": "2017-01-04",
+      "m1": 30.8,
+      "m2": 20.0,
+      "chiEff": -0.04,
+      "mFinal": 48.9,
+      "aFinal": 0.66,
+      "dlMpc": 990,
+      "z": 0.20,
+      "fLow": 35,
+      "audioShiftOct": 0,
+      "note": "First O2 detection."
+    },
+    {
+      "name": "GW170814",
+      "date": "2017-08-14",
+      "m1": 30.6,
+      "m2": 25.2,
+      "chiEff": 0.07,
+      "mFinal": 53.2,
+      "aFinal": 0.72,
+      "dlMpc": 600,
+      "z": 0.12,
+      "fLow": 35,
+      "audioShiftOct": 0,
+      "note": "First three-detector observation (LIGO + Virgo)."
+    },
+    {
+      "name": "GW190412",
+      "date": "2019-04-12",
+      "m1": 30.1,
+      "m2": 8.3,
+      "chiEff": 0.25,
+      "mFinal": 37.3,
+      "aFinal": 0.67,
+      "dlMpc": 740,
+      "z": 0.15,
+      "fLow": 35,
+      "audioShiftOct": 0,
+      "note": "Strongly asymmetric masses - higher harmonics observed."
+    },
+    {
+      "name": "GW190521",
+      "date": "2019-05-21",
+      "m1": 95.3,
+      "m2": 69.0,
+      "chiEff": 0.03,
+      "mFinal": 156.3,
+      "aFinal": 0.71,
+      "dlMpc": 3920,
+      "z": 0.64,
+      "fLow": 15,
+      "audioShiftOct": 2,
+      "note": "Most massive - intermediate-mass black hole remnant; low-frequency chirp shifted +2 octaves for audibility."
+    }
+  ]
+}

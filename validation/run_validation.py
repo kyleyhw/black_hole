@@ -1,13 +1,15 @@
-"""Validation suite: runs four numerical studies against analytic results
+"""Validation suite: runs the numerical studies against analytic results
 and writes plots (plots/) plus a markdown report (reports/validation.md).
 
-Studies (PROJECT_PLAN.md section 5):
+Studies (PROJECT_PLAN.md sections 5, 10):
   1. RK4 convergence order on a strong-field flyby.
   2. Schwarzschild critical impact parameter vs 3*sqrt(3) M.
   3. Kerr equatorial photon-orbit radii at a = 0.9 vs analytic r_ph.
   4. Conservation drift (E, L_z, H) along a strong-field ray.
   5. Timelike free fall vs the Schwarzschild cycloid (Phase 8 camera).
   6. Weak-field multi-mass deflection vs 4M/b (Phase 10 mode).
+  7. PN chirp (TaylorT4) + QNM fits vs GW150914 (Phase 13 merger mode).
+  8. Superposed Kerr-Schild binary metric (Phase 13 merger mode).
 
 Run:  uv run python run_validation.py
 """
@@ -26,6 +28,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
+from pn import (
+    chirp_mass,
+    chirp_time_leading,
+    f_gw_of_x,
+    integrate_t4,
+    qnm_220,
+    MSUN_S,
+)
+from superposed import (
+    Hole,
+    deflection_binary,
+    metric_and_inverse,
+)
 from weakfield import Mass, deflection_angle
 from kerr import (
     Outcome,
@@ -422,6 +437,151 @@ def study_deflection() -> StudyResult:
     }
 
 
+def study_pn_chirp() -> StudyResult:
+    """Study 7: TaylorT4 phasing + QNM fits against GW150914.
+
+    Inputs: GW150914 detector-frame masses (source 35.6 + 30.6 Msun at
+    z = 0.09 -> 38.8 + 33.4), chi_eff = -0.01, from f_GW = 35 Hz — chosen
+    because GW150914 has the best-known published timing (~0.2 s of loud
+    signal) and ringdown (~250 Dz, ~4 ms).
+    """
+    z = 0.09
+    m1, m2 = 35.6 * (1 + z), 30.6 * (1 + z)
+    chi = -0.01
+    f_low = 35.0
+    mt_s = (m1 + m2) * MSUN_S
+
+    t, x, _phi = integrate_t4(m1, m2, chi, f_low, order=7)
+    tau_t4 = float(t[-1])
+    f_gw = f_gw_of_x(x, mt_s)
+
+    # 0PN self-check: the order-0 integration must reproduce the analytic
+    # leading-order elapsed time between f_low and f(ISCO) — validates the
+    # integrator itself, independent of coefficient transcription.
+    t0, x0, _ = integrate_t4(m1, m2, chi, f_low, order=0)
+    mc = chirp_mass(m1, m2)
+    f_isco0 = float(f_gw_of_x(x0[-1:], mt_s)[0])
+    tau0_analytic = chirp_time_leading(mc, f_low) - chirp_time_leading(mc, f_isco0)
+    err_0pn = abs(float(t0[-1]) / tau0_analytic - 1.0)
+
+    # Order convergence of the accumulated orbital phase over the same band:
+    # successive PN corrections must shrink (order counts half-PN steps).
+    phases: dict[int, float] = {}
+    for order in (2, 3, 4, 5, 6, 7):
+        _, _, ph = integrate_t4(m1, m2, chi, f_low, order=order)
+        phases[order] = float(ph[-1])
+    d_early = abs(phases[3] - phases[2])
+    d_late = abs(phases[7] - phases[6])
+
+    mf_det = 63.1 * (1 + z)
+    f_qnm, tau_qnm = qnm_220(mf_det, 0.69)
+
+    # Plot: frequency sweep + separation, with ISCO and QNM markers.
+    sep = (mt_s / (math.pi * mt_s * f_gw) ** 2) ** (1.0 / 3.0) / mt_s  # r/M
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7, 6), sharex=True)
+    ax1.plot(t, f_gw, lw=1.5)
+    ax1.axhline(f_qnm, ls="--", c="tab:red", label=f"QNM {f_qnm:.0f} Hz")
+    ax1.set_ylabel("f_GW [Hz]")
+    ax1.set_yscale("log")
+    ax1.legend()
+    ax1.set_title(f"GW150914 (detector frame): TaylorT4 35 Hz → ISCO in {tau_t4:.3f} s")
+    ax2.plot(t, sep, lw=1.5, c="tab:green")
+    ax2.set_xlabel("t [s]")
+    ax2.set_ylabel("separation r/M (Newtonian map)")
+    fig.tight_layout()
+    fig.savefig(PLOTS / "pn_chirp.png", dpi=120)
+    plt.close(fig)
+
+    return {
+        "tau_t4_s": tau_t4,
+        "tau0_analytic_s": tau0_analytic,
+        "err_0pn": err_0pn,
+        "dphase_1pn": d_early,
+        "dphase_35pn": d_late,
+        "f_qnm_hz": f_qnm,
+        "tau_qnm_ms": tau_qnm * 1e3,
+    }
+
+
+def study_superposed() -> StudyResult:
+    """Study 8: superposed-KS binary metric (static, Phase 13 scope).
+
+    Inputs chosen to be generic (unequal masses, unequal misaligned-in-
+    magnitude spins, off-axis field points): no symmetry to hide index or
+    sign errors in the Sherman-Morrison chain.
+    """
+    rng = np.random.default_rng(20260719)  # fixed seed: reproducible report
+    h1 = Hole(1.0, 0.7, (0.0, -6.0, 0.0))
+    h2 = Hole(0.6, -0.18, (0.0, 6.0, 0.0))
+
+    # (a) Exactness of the closed-form inverse at random field points
+    # (outside both capture zones; |x| in [2.5, 40] around either hole).
+    max_inv_err = 0.0
+    for _ in range(200):
+        pt = tuple(float(v) for v in rng.uniform(-40, 40, 3))
+        r1 = math.dist(pt, h1.center)
+        r2 = math.dist(pt, h2.center)
+        if r1 < 2.5 or r2 < 2.5:
+            continue
+        g, g_inv = metric_and_inverse((pt[0], pt[1], pt[2]), h1, h2)
+        max_inv_err = max(max_inv_err, float(np.abs(g @ g_inv - np.eye(4)).max()))
+
+    # (b) Single-hole limit: with h2's mass scaled down, g_inv must approach
+    # the exact single-Kerr inverse linearly in M2 (the superposition error
+    # is first order in the second hole's amplitude).
+    probe = (3.7, 1.2, 2.1)
+    kerr_ref = Hole(1.0, 0.9, (0.0, 0.0, 0.0))
+    _, ginv_single = metric_and_inverse(
+        probe, kerr_ref, Hole(0.0, 0.0, (40.0, 0.0, 0.0))
+    )
+    m2s = np.array([1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8])
+    errs = []
+    for m2v in m2s:
+        _, gi = metric_and_inverse(
+            probe, kerr_ref, Hole(float(m2v), 0.0, (40.0, 0.0, 0.0))
+        )
+        errs.append(float(np.abs(gi - ginv_single).max()))
+    err_arr = np.asarray(errs)
+    slope = float(np.polyfit(np.log(m2s), np.log(err_arr), 1)[0])
+
+    # (c) Far-field additivity: ray past two equal holes on the y axis at
+    # x = b; predicted deflection is the sum 4 M_k / b_k (both = b here).
+    ha = Hole(1.0, 0.5, (0.0, -30.0, 0.0))
+    hb = Hole(1.0, 0.5, (0.0, 30.0, 0.0))
+    b = 300.0
+    alpha = deflection_binary(b, ha, hb)
+    alpha_pred = 4.0 * ha.mass / b + 4.0 * hb.mass / b
+    additivity_ratio = alpha / alpha_pred
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 4))
+    ax1.loglog(m2s, err_arr, "o-", label="max |g⁻¹(M₂) − g⁻¹(0)|")
+    guide = err_arr[0] * (m2s / m2s[0])
+    ax1.loglog(m2s, guide, "k--", lw=1, label="slope 1")
+    ax1.set_xlabel("M₂")
+    ax1.set_ylabel("inverse-metric deviation")
+    ax1.set_title(f"Single-hole limit (slope {slope:.3f})")
+    ax1.legend()
+    ax2.bar(
+        ["measured", "Σ 4Mₖ/bₖ"], [alpha, alpha_pred], color=["tab:blue", "tab:gray"]
+    )
+    ax2.set_ylabel("deflection [rad]")
+    ax2.set_title(
+        f"Two-hole additivity at b = {b:.0f} M (ratio {additivity_ratio:.4f})"
+    )
+    fig.tight_layout()
+    fig.savefig(PLOTS / "superposed_ks.png", dpi=120)
+    plt.close(fig)
+
+    return {
+        "max_inverse_err": max_inv_err,
+        "limit_slope": slope,
+        "limit_err_at_1e8": float(err_arr[-1]),
+        "deflection": alpha,
+        "deflection_pred": alpha_pred,
+        "additivity_ratio": additivity_ratio,
+    }
+
+
 def main() -> None:
     PLOTS.mkdir(exist_ok=True)
     REPORTS.mkdir(exist_ok=True)
@@ -432,6 +592,8 @@ def main() -> None:
         ("drift", study_drift),
         ("plunge", study_plunge),
         ("deflection", study_deflection),
+        ("pn_chirp", study_pn_chirp),
+        ("superposed", study_superposed),
     ]
     results: dict[str, StudyResult] = {}
     times: dict[str, float] = {}
@@ -474,6 +636,29 @@ def main() -> None:
             results["deflection"]["additivity_ratio"] - 1.0
         )
         < 0.04,
+        "T4 0PN reproduces leading chirp time (0.5%)": results["pn_chirp"]["err_0pn"]
+        < 0.005,
+        "PN phase converges (|dphi 3.5PN| < |dphi 1PN|)": results["pn_chirp"][
+            "dphase_35pn"
+        ]
+        < results["pn_chirp"]["dphase_1pn"],
+        "GW150914 chirp 35 Hz to ISCO in [0.05, 0.3] s": 0.05
+        < results["pn_chirp"]["tau_t4_s"]
+        < 0.3,
+        "GW150914 QNM f in [240, 260] Hz": 240 < results["pn_chirp"]["f_qnm_hz"] < 260,
+        "GW150914 QNM tau in [3, 5.5] ms": 3.0
+        < results["pn_chirp"]["tau_qnm_ms"]
+        < 5.5,
+        "binary inverse exact (< 1e-12)": results["superposed"]["max_inverse_err"]
+        < 1e-12,
+        "single-hole-limit slope 1 (±0.1)": abs(
+            results["superposed"]["limit_slope"] - 1.0
+        )
+        < 0.1,
+        "binary far-field additivity within 3%": abs(
+            results["superposed"]["additivity_ratio"] - 1.0
+        )
+        < 0.03,
     }
     for label, ok in checks.items():
         print(("PASS " if ok else "FAIL ") + label)
@@ -495,13 +680,16 @@ def write_report(
         results["plunge"],
     )
     df = results["deflection"]
+    pn = results["pn_chirp"]
+    sp = results["superposed"]
     total = sum(times.values())
     lines = f"""# Validation Suite Report
 
 **Command:** `uv run python run_validation.py` · **Total runtime:** {total:.1f} s
 (convergence {times["convergence"]:.1f} s, b_crit {times["bcrit"]:.1f} s,
 photon shell {times["photon_shell"]:.1f} s, drift {times["drift"]:.1f} s,
-plunge {times["plunge"]:.1f} s)
+plunge {times["plunge"]:.1f} s, deflection {times["deflection"]:.1f} s,
+PN chirp {times["pn_chirp"]:.1f} s, superposed KS {times["superposed"]:.1f} s)
 
 **Result: {"PASS" if all(checks.values()) else "FAIL"}** — {sum(checks.values())}/{len(checks)} checks.
 
@@ -608,6 +796,57 @@ which follows the ~10M/b second-order envelope: the departures at small b
 are the metric's own higher-order deflection, not integration error.
 **b = 1000: ratio {df["ratio_b1000"]:.5f}; tail slope {df["slope_tail"]:.4f};
 two-mass additivity ratio {df["additivity_ratio"]:.4f} (vs per-mass 4M_k/b_k sum).**
+
+## 7. PN chirp + ringdown fits vs GW150914 (`plots/pn_chirp.png`)
+
+**What/why:** merger mode (Phase 13) drives the animation and the audio
+from TaylorT4 phasing; this study validates the phasing pipeline against
+the best-measured event. Detector-frame masses (source 35.6 + 30.6 Msun at
+z = 0.09) because observed frequencies scale with (1+z)m — see
+docs/derivations.md §12.
+
+**Reading the plot:** top, the GW frequency sweep f_GW(t) from 35 Hz to the
+ISCO on a log axis — the accelerating "chirp"; the dashed red line is the
+remnant's (2,2,0) quasinormal-mode frequency the blend must reach. Bottom,
+the (Newtonian-map) separation in M shrinking toward merger. The chirp
+duration printed in the title is the 35 Hz-to-ISCO segment; the published
+~0.2 s of loud GW150914 signal additionally includes the post-ISCO
+merger portion that PN cannot describe (the schematic blend's job).
+**Chirp 35 Hz→ISCO: {pn["tau_t4_s"]:.3f} s (leading-order analytic band
+{pn["tau0_analytic_s"]:.3f} s); 0PN integrator self-check err
+{pn["err_0pn"]:.2e}; phase-increment convergence |dphi(3.5PN)| =
+{pn["dphase_35pn"]:.3f} rad < |dphi(1PN)| = {pn["dphase_1pn"]:.3f} rad;
+QNM f = {pn["f_qnm_hz"]:.1f} Hz, tau = {pn["tau_qnm_ms"]:.2f} ms (published
+GW150914 ringdown ≈ 250 Hz, ≈ 4 ms).**
+
+**Inputs:** 35 Hz start (the detector band edge used in the discovery
+paper); orders 1PN–3.5PN for the convergence ladder; QNM from the
+published remnant (M_f = 63.1 Msun, a_f = 0.69).
+
+## 8. Superposed Kerr–Schild binary metric (`plots/superposed_ks.png`)
+
+**What/why:** merger mode renders two holes with the superposed-KS metric
+whose inverse is closed-form via two Sherman–Morrison rank-1 updates
+(docs/derivations.md §11). Three properties are load-bearing: the inverse
+must be *exact* (the integrator differentiates H = ½ p g⁻¹ p), the single-
+hole limit must reduce to Kerr (anchors to everything already validated),
+and the far field must reproduce additive deflection (continuity with the
+weak-field mode).
+
+**Reading the plot:** left, log–log deviation of the binary inverse from
+the exact single-Kerr inverse as the second mass M₂ → 0 — points parallel
+to the slope-1 guide confirm the superposition error is first order in the
+second hole's amplitude, i.e. the limit is approached at the expected rate.
+Right, measured deflection past two equal holes vs the additive prediction
+Σ 4Mₖ/bₖ.
+**Inverse exactness: max |g·g⁻¹ − 1| = {sp["max_inverse_err"]:.2e} over 200
+random strong-field points; limit slope {sp["limit_slope"]:.3f}; additivity
+ratio {sp["additivity_ratio"]:.4f} at b = 300 M.**
+
+**Inputs:** generic unequal masses/spins (1.0, a = 0.7 and 0.6, a = −0.18)
+and off-axis probe points — no symmetry to hide index or sign errors;
+static (unboosted) superposition, the Phase 13 scope (the boost enters with
+the Phase 14 shader and carries its own check).
 
 ## Checks
 

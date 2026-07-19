@@ -110,7 +110,7 @@ explicit f32 truncation/roundoff optimum. Details:
 
 A float64 mirror of the exact shader algorithm
 ([`validation/kerr.py`](validation/kerr.py)) is tested against analytic
-strong-field results — all 12 checks pass
+strong-field results — all 20 checks pass
 ([full report](validation/reports/validation.md)):
 
 | | |
@@ -120,12 +120,18 @@ strong-field results — all 12 checks pass
 | ![Photon shell](validation/plots/photon_shell.png) | ![Conservation drift](validation/plots/conservation_drift.png) |
 | **Kerr photon shell (a = 0.9):** the marginally-escaping ray's minimum radius matches the analytic prograde/retrograde photon-orbit radii to ~10⁻⁵ — frame dragging quantitatively right, both senses. | **Conservation drift:** E is conserved identically by construction; L_z and H stay bounded at ~10⁻⁶ (production stepping) on a generic flyby and <2×10⁻⁵ on a near-critical ray that winds the photon shell, where instability amplifies error by ~e^{2π} per orbit. |
 
-Two more studies validate the extended features:
+Four more studies validate the extended features:
 **free fall vs the Schwarzschild cycloid** (the timelike Hamiltonian
 branch: max relative error 7×10⁻¹⁰ over 44,711 proper-time steps,
-`validation/plots/freefall_cycloid.png`) and **weak-field deflection**
+`validation/plots/freefall_cycloid.png`), **weak-field deflection**
 (α = 4M/b to 0.28% at b = 10³ M with log–log slope −1.008, two-mass
-far-field additivity to 3.3%, `validation/plots/weakfield_deflection.png`).
+far-field additivity to 3.3%, `validation/plots/weakfield_deflection.png`),
+and the merger-mode foundations (in progress): **PN chirp + ringdown**
+(TaylorT4 reproduces the analytic 0PN chirp time to 3×10⁻⁹ and GW150914's
+published ringdown, 249 Hz / 4.1 ms, `validation/plots/pn_chirp.png`) and
+the **superposed Kerr–Schild binary metric** (Sherman–Morrison inverse
+exact to 4×10⁻¹⁶, single-hole limit at the expected first-order rate,
+far-field additivity to 0.4%, `validation/plots/superposed_ks.png`).
 
 **In-browser cross-check:** the rendered Schwarzschild shadow radius at
 r₀ = 18 M matches the textbook local-frame prediction

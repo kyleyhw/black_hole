@@ -553,6 +553,172 @@ $$\alpha = \frac{4M}{b} + O\!\left(\frac{M^2}{b^2}\right),$$
 checked over $b \in [10, 10^3]\,M$ (log–log slope $-1$, coefficient 4),
 plus far-field additivity for two separated masses.
 
+## 11. Superposed Kerr–Schild metric for binaries
+
+Merger mode (PROJECT_PLAN §10) renders two black holes with the metric
+
+$$g_{\mu\nu} = \eta_{\mu\nu} + f_1\, l^{(1)}_\mu l^{(1)}_\nu
+            + f_2\, l^{(2)}_\mu l^{(2)}_\nu,$$
+
+each term the Kerr–Schild data of one hole evaluated in coordinates
+centered on (and boosted with) that hole's instantaneous position and
+velocity. Superposed Kerr–Schild data is a standard construction for
+binary-black-hole initial data in numerical relativity
+[[5]](#ref-marronetti-2000); it is **not** an exact solution — the Einstein
+tensor picks up cross terms of order $f_1 f_2 \sim M_1 M_2 / (r_1 r_2)$ —
+but each single-hole limit is exact, and the error is controlled at
+separation $d$: $\mathcal{O}(M_1 M_2 / d)$ near either hole.
+
+**Boost.** A single boosted KS hole is still exact: apply the Lorentz map
+$\Lambda(v)$ of the hole's instantaneous coordinate velocity to the rest-
+frame $(f, l_\mu)$, i.e. evaluate $f$ and $l$ at the boosted-back point and
+transform the covector, $l_\mu \to \Lambda^\nu{}_\mu\, l_\nu$. Using the
+*instantaneous* velocity neglects acceleration over a light-crossing time —
+a labeled approximation on top of the superposition error.
+
+**Exact inverse by two Sherman–Morrison updates.** For a rank-1 update
+$A + c\, w w^{\!\top}$,
+
+$$(A + c\, w w^{\!\top})^{-1} = A^{-1}
+ - \frac{c\, (A^{-1} w)(A^{-1} w)^{\!\top}}{1 + c\, w^{\!\top} A^{-1} w}.$$
+
+Apply it twice. First with $A = \eta$, $w = l^{(1)}$: since $l^{(1)}$ is
+$\eta$-null, $l^{(1)\top}\eta^{-1}l^{(1)} = 0$ and
+
+$$A_1^{-1} = \eta^{-1} - f_1\, l_{(1)}^{\ \mu} l_{(1)}^{\ \nu}$$
+
+— the familiar exact single-KS inverse (§2). Second with $A = A_1$,
+$w = l^{(2)}$:
+
+$$g^{-1} = A_1^{-1}
+ - \frac{f_2\,(A_1^{-1} l^{(2)})(A_1^{-1} l^{(2)})^{\!\top}}
+        {1 + f_2\, l^{(2)\top} A_1^{-1} l^{(2)}},
+\qquad
+l^{(2)\top} A_1^{-1} l^{(2)} = -f_1 \big(l_{(1)}\!\cdot l^{(2)}\big)^2,$$
+
+where the last equality uses the $\eta$-nullity of $l^{(2)}$ and
+$l_{(1)}\!\cdot l^{(2)} \equiv l_{(1)}^{\ \mu} l^{(2)}_\mu$. The
+denominator is therefore
+
+$$D = 1 - f_1 f_2 \big(l_{(1)}\!\cdot l^{(2)}\big)^2 .$$
+
+$D \to 0$ requires $f_1 f_2 \gtrsim 1$, i.e. both holes' potentials strong
+at the same point — deep in the two-horizon overlap, always inside the
+capture region during inspiral. The implementation guards $D$ with a floor
+and treats $D < D_{\min}$ as captured. Closed-form inverse means the
+Hamiltonian, RK4, and finite-difference-gradient machinery (§3, §5) carry
+over unchanged — only the scalar $H(x, p)$ differs, as in the weak-field
+mode (§10).
+
+**Transport caveat (frozen metric).** The binary metric depends on $t$
+through the moving centers, so $\partial H/\partial t \neq 0$ and $p_t$ is
+no longer conserved along rays. Real-time rendering uses the standard
+frozen-metric approximation — each frame traces null geodesics of the
+*instantaneous* metric snapshot. The neglected effect is of order (light-
+crossing time of the scene) / (orbital period); it grows toward merger and
+is labeled in the UI and README. Honest time-dependent transport
+(integrating $t$ and $p_t$ with four-dimensional finite-difference
+gradients) is specified as Phase 18, decision deferred.
+
+**Validation targets.** (i) $g \cdot g^{-1} = \mathbb{1}$ to machine
+precision at random field points; (ii) $M_2 \to 0$ reduces every metric
+component and traced ray to the single-Kerr results of `kerr.py`;
+(iii) far-field deflection of two well-separated holes matches the
+weak-field mode's additive $\sum_k 4 M_k / b_k$.
+
+## 12. Post-Newtonian inspiral and the chirp
+
+**Phasing.** Quasi-circular TaylorT4 evolution of the PN parameter
+$x \equiv (M \omega_{\rm orb})^{2/3}$, mass ratio $\nu = m_1 m_2 / M^2$,
+$M = m_1 + m_2$:
+
+$$\frac{dx}{dt} = \frac{64\,\nu}{5\,M}\, x^5 \Big[ 1 + c_1 x + c_{3/2}
+x^{3/2} + c_2 x^2 + \dots + c_{7/2} x^{7/2} \Big],$$
+
+with the nonspinning coefficients through 3.5PN transcribed from Boyle et
+al. (2007) [[6]](#ref-boyle-2007) (not re-derived here; transcription is
+checked by the convergence and chirp-time validations below). Aligned spin
+enters at leading (1.5PN spin-orbit) order via
+$c_{3/2} = 4\pi - \beta$ with
+
+$$\beta = \frac{113}{12}\,\frac{m_1^2 \chi_1 + m_2^2 \chi_2}{M^2}
+        + \frac{25}{4}\,\nu\,\frac{m_1\chi_1 + m_2\chi_2}{M},$$
+
+evaluated with $\chi_1 = \chi_2 = \chi_{\rm eff}$ (the catalog's
+best-measured spin combination; higher-order spin terms neglected — the
+chosen events have $|\chi_{\rm eff}| \le 0.25$, and the visual/audio effect
+of the omission is far below the schematic-blend error). Orbital phase from
+$d\varphi/dt = \omega_{\rm orb} = x^{3/2}/M$; GW frequency
+$f_{\rm GW} = \omega_{\rm orb}/\pi$ (quadrupole, $m = 2$).
+
+**Chirp mass and the leading-order chirp time.** With
+$\mathcal{M} = (m_1 m_2)^{3/5} / M^{1/5} = M \nu^{3/5}$, keeping only the
+leading term of $dx/dt$ integrates in closed form to the time to
+coalescence from GW frequency $f$:
+
+$$\tau(f) = \frac{5}{256}\, \mathcal{M}^{-5/3}\, (\pi f)^{-8/3}.$$
+
+**Detector frame.** Observed frequencies scale with the *redshifted*
+masses: a source at redshift $z$ chirps as a binary of masses $(1+z)\,m$.
+The catalog stores source-frame masses and $z$; the audio synthesis uses
+$(1+z)\,m$ so the chirp matches what the detectors heard, while the panel
+displays source-frame values. For GW150914 (source
+$\mathcal{M} \approx 28.6\,M_\odot$, $z \approx 0.09$, detector-frame
+$\mathcal{M} \approx 31\,M_\odot$) the leading-order formula gives
+$\tau(35\ \text{Hz}) \approx 0.16$ s — already the observed $\sim 0.2$ s of
+loud signal. The validation suite integrates the full series and checks
+both the low-frequency agreement with $\tau(f)$ and the PN-order
+convergence of the accumulated phase.
+
+**Separation for visuals.** $r = (M/\omega_{\rm orb}^2)^{1/3}$ — the
+Newtonian (Kepler) inversion, labeled as such; PN corrections to the
+$r(\omega)$ map affect the *displayed* separation at the few-percent level
+in the strong field and are dominated by the schematic merger blend anyway.
+Hole positions on circles about the center of mass with radii
+$r_{1,2} = (m_{2,1}/M)\, r$.
+
+**Waveform for audio.** Restricted (quadrupole) inspiral amplitude,
+
+$$h(t) \propto \mathcal{M}^{5/3} f_{\rm GW}^{2/3}(t)\,
+\cos 2\varphi_{\rm orb}(t),$$
+
+blended $C^1$ into the ringdown of §13. The overall amplitude is a volume
+knob (we are not modeling the detector response); the *frequency
+evolution* is the physics, and it is asserted numerically by an FFT of the
+rendered audio buffer against the TaylorT4 sweep.
+
+**Time mapping (design decision, owner-approved).** Near merger
+$f_{\rm GW}$ exceeds 100 Hz; at a 60 fps display any true-rate rendering of
+the orbit temporally aliases (Nyquist for visual rotation is 30 cycles/s).
+The animation therefore runs the *visuals* in slow motion (adjustable
+factor, with true-vs-displayed time shown), while the *audio chirp plays at
+the true rate*, started so it completes exactly at the visual merger — the
+sound is the physical timescale, the picture is a legible one, and the two
+are phase-locked to the same $\varphi(t)$.
+
+## 13. Remnant and ringdown
+
+The remnant is rendered as exact Kerr with the **published** final mass and
+spin $(M_f, a_f)$ of each catalog event — no remnant fit of our own. The
+audio ringdown uses the fundamental $(\ell, m, n) = (2, 2, 0)$ quasinormal
+mode of that remnant, with frequency and quality factor from the
+Berti–Cardoso–Will fits [[7]](#ref-berti-2006):
+
+$$M_f\, \omega_R = 1.5251 - 1.1568\,(1 - a_f)^{0.1292}, \qquad
+Q = 0.7000 + 1.4187\,(1 - a_f)^{-0.4990},$$
+
+$$h_{\rm ring}(t) \propto e^{-t/\tau_{\rm ring}}
+\cos(\omega_R t + \phi_0), \qquad
+\tau_{\rm ring} = \frac{2 Q}{\omega_R}.$$
+
+For GW150914's remnant ($M_f \approx 63\,M_\odot$, $a_f \approx 0.69$)
+these fits give $f_{\rm QNM} = \omega_R / 2\pi \approx 250$ Hz and
+$\tau_{\rm ring} \approx 4$ ms — the published ringdown numbers, which the
+validation suite asserts. The inspiral-to-ringdown join (frequency and
+amplitude) is a $C^1$ schematic blend over the final $\sim$orbit: the one
+regime where neither PN nor perturbation theory applies, and honestly
+labeled — numerical relativity is the only correct tool there.
+
 ## References
 
 <span id="ref-bpt-1972">[1]</span> Bardeen, J. M., Press, W. H., & Teukolsky, S. A. (1972). *Rotating Black Holes: Locally Nonrotating Frames, Energy Extraction, and Scalar Synchrotron Radiation.* ApJ, 178, 347. [Link](https://doi.org/10.1086/151796)
@@ -562,3 +728,13 @@ plus far-field additivity for two separated masses.
 <span id="ref-chandra">[3]</span> Chandrasekhar, S. (1983). *The Mathematical Theory of Black Holes.* Oxford University Press. (Kerr geodesics: ch. 7; Kerr–Schild form: §58.)
 
 <span id="ref-dngr">[4]</span> James, O., von Tunzelmann, E., Franklin, P., & Thorne, K. S. (2015). *Gravitational lensing by spinning black holes in astrophysics, and in the movie Interstellar.* Class. Quantum Grav., 32, 065001. [Link](https://doi.org/10.1088/0264-9381/32/6/065001)
+
+<span id="ref-marronetti-2000">[5]</span> Marronetti, P., & Matzner, R. A. (2000). *Solving the Initial Value Problem of Two Black Holes.* Phys. Rev. Lett., 85, 5500. [Link](https://doi.org/10.1103/PhysRevLett.85.5500) — superposed Kerr–Schild data for binaries.
+
+<span id="ref-boyle-2007">[6]</span> Boyle, M., et al. (2007). *High-accuracy comparison of numerical relativity simulations with post-Newtonian expansions.* Phys. Rev. D, 76, 124038. [Link](https://doi.org/10.1103/PhysRevD.76.124038) — TaylorT4 coefficients.
+
+<span id="ref-berti-2006">[7]</span> Berti, E., Cardoso, V., & Will, C. M. (2006). *Gravitational-wave spectroscopy of massive black holes with the space interferometer LISA.* Phys. Rev. D, 73, 064030. [Link](https://doi.org/10.1103/PhysRevD.73.064030) — (2,2,0) QNM frequency/quality fits.
+
+<span id="ref-gwtc21">[8]</span> Abbott, R., et al. (LIGO–Virgo Collaboration) (2024). *GWTC-2.1: Deep Extended Catalog of Compact Binary Coalescences.* Phys. Rev. D, 109, 022001. [Link](https://doi.org/10.1103/PhysRevD.109.022001) — event parameters, via the [GWOSC event portal](https://gwosc.org/eventapi/).
+
+<span id="ref-peters-1964">[9]</span> Peters, P. C. (1964). *Gravitational Radiation and the Motion of Two Point Masses.* Phys. Rev., 136, B1224. [Link](https://doi.org/10.1103/PhysRev.136.B1224) — leading-order inspiral decay.

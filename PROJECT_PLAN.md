@@ -256,6 +256,42 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 - Divergence risk between GLSL and WGSL copies of the physics is managed by (i) keeping both ports structurally line-parallel with shared banner sections and (ii) a **parity test**: identical camera/parameters rendered on both backends, per-pixel difference imaged and bounded; recorded in the test report.
 - High-quality screenshot mode: render at full device resolution to a target sample count, then PNG download.
 
+## 10. Merger mode specification (Phases 13–18)
+
+Binary black hole mergers modeled on **real LIGO/Virgo detections** (GWTC catalog parameters), culminating in a cinematic animation with the gravitational-wave chirp synthesized and played from the same model. Approved design decisions (owner, 2026-07-19): slow-motion visuals with the chirp at true rate aligned to complete at the visual merger (temporal-aliasing rationale: orbital frequencies reach ~100+ Hz near merger, unrepresentable at 60 fps); embedded curated catalog with DOIs rather than runtime API fetch; Phase 18 go/no-go deferred until after Phase 17; initial six events (adding more later is a one-JSON-entry change).
+
+### 10.1 Honesty ladder
+
+| Regime | Model | Status |
+|---|---|---|
+| Inspiral (d ≳ 10 M) | Superposed **boosted Kerr–Schild** metrics on PN trajectories | Controlled approximation, error O(M₁M₂/d) |
+| Late plunge / merger | C¹ blend of two-hole metric into remnant | **Schematic** — labeled; NR is the only honest tool |
+| Ringdown | Exact Kerr remnant with *published* M_f, a_f; QNM from Berti–Cardoso–Will fits (audio) | Exact geometry; settling not rendered as metric dynamics |
+
+### 10.2 Metric: superposed KS with exact Sherman–Morrison inverse
+
+g = η + f₁ l⁽¹⁾l⁽¹⁾ + f₂ l⁽²⁾l⁽²⁾, each term a boosted-KS hole at its instantaneous orbital position/velocity (instantaneous boost; acceleration neglected, labeled). Exact closed-form inverse via two successive rank-1 Sherman–Morrison updates; denominator 1 − f₁f₂(l⁽¹⁾·l⁽²⁾)² guarded (vanishes only deep in the two-horizon overlap, inside the capture zone). Single-hole limit M₂ → 0 must reduce to the existing exact Kerr inverse to machine precision — the anchor validation. Shader: `#define BINARY` variant; integrator/termination untouched. **Transport caveat:** metric now time-dependent ⇒ p_t not exactly conserved; Phase-1 rendering uses the frozen-metric (per-frame snapshot) approximation, standard for real-time BH visualization; honest time-dependent transport is Phase 18.
+
+### 10.3 Dynamics
+
+TaylorT4 quasi-circular phasing (nonspinning 3.5PN + 1.5PN spin-orbit from catalog χ_eff; coefficients transcribed from Boyle et al. 2007 with citation), separation for visuals from r = (M/ω²)^{1/3} (labeled Newtonian-order mapping). Blend to remnant over ~the final orbit (schematic, labeled); remnant = exact Kerr with published M_f, a_f.
+
+### 10.4 Chirp
+
+h(t) ∝ 𝓜^{5/3} f^{2/3} cos 2φ_orb synthesized from the SAME phase evolution driving the animation (phase-locked by construction), blended into a damped (l,m,n) = (2,2,0) QNM sinusoid. WebAudio buffer; per-event optional frequency shift for audibility (as in LIGO's released audio, labeled). Numerically testable via OfflineAudioContext + FFT against the TaylorT4 sweep.
+
+### 10.5 Data
+
+`src/gwevents.json`: six BBH events (GW150914, GW151226, GW170104, GW170814, GW190412, GW190521) with median source-frame m₁, m₂, χ_eff, M_f, a_f, D_L, date, catalog DOI (GWTC-2.1/3 via the GWOSC event portal; retrieval date recorded; uncertainties omitted, pointed to the DOI). BNS/NSBH excluded (no matter modeling).
+
+### 10.6 UI
+
+Merger mode joins the mode switch; event selector; play/pause/restart; slow-motion factor with true-vs-displayed time readout. **Chirp bar** docked at the bottom: scrolling h(t) waveform with playhead, live f_GW/separation/time-to-merger readouts, volume, frequency-shift toggle — hideable independently AND hidden with the rest of the UI.
+
+### 10.7 Non-goals (documented)
+
+NR merger dynamics; visible GW metric perturbations; kicks; precessing spins (aligned-spin only via χ_eff); accretion disks during merger.
+
 ---
 
 # Part II: Development Phases
@@ -377,3 +413,39 @@ A WGSL compute-shader port of the same integrator for high-quality offline-style
 68. [completed] Physical moving-observer camera: the interactive orbit is now a genuine observer worldline. Its coordinate 3-velocity v = dx/dt is finite-differenced (EMA-smoothed, teleport-guarded), and the tetrad e₀ is set from u = uᵗ(1, v) with uᵗ = 1/√(1 − |v|² − f(1 + l·v)²) (`movingObserver` in `tetrad.ts`; derivations.md §8) — so dragging shows real aberration and Doppler and reduces to the static observer exactly at rest. A free drag is superluminal in coordinate units, so v is clamped to the local light cone (max Lorentz factor 10). New phase-8 check verifies v = 0 ≡ static to 10⁻¹² and opposite toward/away Doppler shifts (q_t 0.673 / 1.360 about the static 0.943); full 9-suite sweep re-certified PASS. Docs updated (derivations §8, rendering camera model, Camera learn popup).
 69. [completed] Fix: the first moving-observer cut was verified only at the physics level and shipped broken — a hand-drag's raw finite-difference velocity is superluminal in coordinate units (~1.6 c), so it clamped to 0.995 c and strobed on/off between frames (pointer input is not frame-synced), making the camera lurch. Fixed by computing the velocity **only while actively dragging** (`camera.isManipulating`), EMA-smoothing it (removes the strobe), and mapping its magnitude through a sub-luminal saturating curve `V_max·tanh(|v|/V_ref)`, `V_max = 0.5 c` (bounded, graded aberration; the `movingObserver` B-floor is now only a backstop). A still camera is exactly static, so pixel suites are unaffected. New phase-12 check 5b drives a **real pointer drag** and asserts the mapped speed (`__bh.camSpeed()`) is 0 at rest, bounded and non-strobing during the drag, and 0 after release — the interactive path the physics-only test had missed. Docs corrected (derivations §8, rendering, Camera popup).
 70. [completed] Fix (round 2, per-frame diagnosis): the round-1 fix passed a batch-sampled drag test but per-frame tracing showed it still broken — binary saturation (V_ref = 1 M/s sat an order of magnitude below real drag speeds of 3–20 M/s, so any touch pegged the 0.5 c cap ≈ 29° aberration), one-frame snaps at gesture start/release (max frame-to-frame jump 0.494 c), a sawtooth at the pointer cadence, the teleport guard firing on legitimately-batched drag steps mid-gesture, and silent velocity death when the frame period exceeded the window. Final estimator: 0.32 s sliding-window derivative with straddling-sample eviction, time-constant EMA (τ = 0.15 s, k = 1 − exp(−dt/τ)), gesture gating with 0.6 s post-input grace (decays through the coast; teleport guard only outside live gestures), map V_max·tanh(|v|/V_ref) with V_max = 0.25 c, V_ref = 10 M/s. Measured: max frame jump 0.024–0.031 c (18× smoother), graded speeds, still frame pixel-identical. phase-12 check 5b rebuilt: wall-clock-paced real pointer drag asserting the smoothness invariant (max frame jump < 0.15 c), boundedness, and decay. Full 9-suite sweep PASS. Docs updated (derivations §8 four-stage estimator, rendering.md, report).
+
+## Phase 13: Merger Mode — Derivations, Data, Validation Core (§10)
+
+71. [completed] Derivations first (project pattern): `docs/derivations.md` §11 superposed boosted Kerr–Schild metric and the exact two-step Sherman–Morrison inverse (with the single-hole-limit and denominator-guard analysis); §12 TaylorT4 PN phasing (nonspinning 3.5PN + 1.5PN spin-orbit via χ_eff, coefficients cited to Boyle et al. 2007), chirp mass, leading-order chirp time, Newtonian-order separation mapping, and the slow-motion/true-rate time-mapping design with the temporal-aliasing argument; §13 remnant (published M_f, a_f) and (2,2,0) QNM frequency/quality fits (Berti–Cardoso–Will). References extended.
+72. [completed] Curated event catalog `src/gwevents.json`: six BBH events with median source-frame m₁, m₂, χ_eff, M_f, a_f, D_L, date, per-event f_low and audio-shift default, catalog DOI; retrieval provenance noted in the file header and docs. Owner spot-check of the table against the GWOSC event portal is part of the checkpoint.
+73. [completed] Validation modules: `validation/pn.py` (TaylorT4 driver; checks: leading-order chirp-time formula agreement at low frequency, PN-order convergence of accumulated phase, GW150914 time-from-35-Hz ≈ 0.2 s, QNM fit values vs published GW150914 ringdown ≈ 250 Hz) and `validation/superposed.py` (superposed-KS metric + Sherman–Morrison inverse; checks: g·g⁻¹ = 1 to machine precision, single-hole limit vs `kerr.py` as M₂ → 0, far-field two-hole deflection additivity vs the weak-field mode). New studies + plots wired into `run_validation.py` and the report.
+74. [in-progress] Commit; **checkpoint**: derivations §11–13 and the validation results presented to the owner for review before any shader work (Phase 14 gate).
+
+## Phase 14: Merger Mode — BINARY Shader Variant (§10.2)
+
+75. [pending] `#define BINARY` shader variant: superposed boosted-KS metric terms + Sherman–Morrison inverse in GLSL; static two-hole scene (fixed separation) rendering with two shadows and inter-hole lensing; uniforms for per-hole mass/spin/position/velocity.
+76. [pending] e2e `phase13.cjs` (naming continues the suite numbering): single-hole-limit pixel parity vs Kerr mode (M₂ = 0 → identical frames), two-hole scene renders with two capture regions at predicted screen positions, far-separation consistency vs the weak-field mode; report.
+77. [pending] Commit; **checkpoint**: static binary renders reviewed.
+
+## Phase 15: Merger Mode — Dynamics (§10.3)
+
+78. [pending] TS PN driver mirroring `pn.py` (TaylorT4 ODE, blend-to-remnant schedule, remnant swap to exact Kerr with published M_f/a_f); animation timeline with slow-motion factor and true-vs-displayed time readout; event selector UI from `gwevents.json`; play/pause/restart.
+79. [pending] e2e: separation shrinks monotonically, orbital frequency rises, merger completes to a single shadow with the remnant's r_+, timeline controls work; report.
+80. [pending] Commit; **checkpoint**: full inspiral-to-ringdown animation reviewed.
+
+## Phase 16: Merger Mode — Chirp Audio and Waveform Strip (§10.4, §10.6)
+
+81. [pending] WebAudio chirp synthesized from the same φ(t) (inspiral → C¹ blend → damped QNM), true-rate playback aligned to complete at the visual merger; per-event frequency-shift toggle (labeled); volume control.
+82. [pending] Chirp bar: scrolling h(t) canvas with playhead, live f_GW/separation/time-to-merger readouts; **hideable independently and with the master UI toggle**.
+83. [pending] e2e: OfflineAudioContext render → FFT → chirp f(t) matches the TaylorT4 sweep within tolerance; waveform canvas draws; both hide paths work; report.
+84. [pending] Commit; **checkpoint**: chirp + animation reviewed together.
+
+## Phase 17: Merger Mode — Polish, Docs, Release (§10)
+
+85. [pending] Cinematic per-event presets; README merger section with animation GIF; "What's physical and what isn't" entries for every approximation in the §10.1 ladder (superposed KS, frozen-metric transport, PN truncation, schematic blend, audio shift); learn-more popups (chirp mass, PN, QNM, honesty ladder).
+86. [pending] Full 10-suite certification sweep + validation suite; deploy; report.
+87. [pending] Commit; **checkpoint**: release review; Phase 18 go/no-go decision (owner).
+
+## Phase 18 (deferred decision): Time-Dependent Ray Transport
+
+88. [pending] Integrate (t, p_t) along rays with 4D FD gradients (retarded-metric transport replacing the frozen-metric snapshot); frozen-vs-retarded comparison toggle; validation of the static limit. **Not started until the owner approves after Phase 17.**
