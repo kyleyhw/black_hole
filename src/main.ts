@@ -7,6 +7,8 @@ import {
   metricTerms as metricTermsPublic, type BinaryHole, type Vec4,
 } from "./tetrad";
 import { FreeFall } from "./geodesic";
+import { MergerDriver, type GwEvent } from "./merger";
+import gweventsRaw from "./gwevents.json";
 import { createHqSession, webGpuSupported, type HqSession } from "./webgpu";
 import vertSrc from "./shaders/fullscreen.vert.glsl?raw";
 import sceneSrc from "./shaders/render.frag.glsl?raw";
@@ -259,9 +261,38 @@ let camTrail: { t: number; p: [number, number, number] }[] = [];
 let camVelEma: [number, number, number] = [0, 0, 0];
 let lastCamSpeed = 0; // |mapped velocity| last frame (units of c), exposed for tests
 
+// --- Merger animation (Phase 15): PN-driven binary with the chirp clock ---
+const GW_EVENTS: readonly GwEvent[] =
+  (gweventsRaw as unknown as { events: GwEvent[] }).events;
+const merger = {
+  driver: null as MergerDriver | null,
+  playing: false,
+  tGeom: 0, // geometric time since f_low (M_total = 1 units)
+  slowmo: 25, // visuals run 1/slowmo of physical rate (sec. 10.6: aliasing)
+};
+
+function mergerSelect(name: string | null): void {
+  if (!name) {
+    merger.driver = null;
+    merger.playing = false;
+    merger.tGeom = 0;
+    return;
+  }
+  const ev = GW_EVENTS.find((e) => e.name === name);
+  if (!ev) return;
+  merger.driver = new MergerDriver(ev);
+  merger.tGeom = 0;
+  merger.playing = false;
+  params.mode = "binary";
+}
+
 // Static-preview hole placement: barycentric on the y axis, M1 = 1 so all
 // lengths are in units of the primary's mass; spins +z-aligned (a = chi * M).
 function binaryHoles(): [BinaryHole, BinaryHole] {
+  if (merger.driver) {
+    const st = merger.driver.state(merger.tGeom);
+    return [st.holes[0], st.holes[1]];
+  }
   const m2 = params.binaryQ;
   const mt = 1 + m2;
   const sep = params.binarySep;
@@ -308,6 +339,11 @@ function frame(now: number): void {
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
   camera.update(dt);
+  // Merger clock: wall time -> physical time (slow-motion divisor, sec. 10.6)
+  // -> geometric time (divide by M_total in seconds).
+  if (merger.driver && merger.playing) {
+    merger.tGeom += dt / merger.slowmo / merger.driver.mTotalSec;
+  }
   // Free-fall mode: the camera worldline is a timelike geodesic integrated
   // on the CPU; the orbit camera's angles track the falling position so the
   // view keeps facing the hole. On plunge termination, reset to orbit.
@@ -537,6 +573,21 @@ function frame(now: number): void {
   gl.uniform1i(uComp.get("uDebugView") ?? null, params.debugView);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
+  // --- Merger readout (physical time to merger, separation, f_GW) ---
+  if (merger.driver && fpsFrames % 6 === 0) {
+    const node = document.getElementById("mergerReadout");
+    if (node) {
+      const st = merger.driver.state(merger.tGeom);
+      const tms = st.tToMergerS * 1e3;
+      node.innerHTML =
+        `t − t<sub>merger</sub> = ${tms >= 0 ? "−" : "+"}${Math.abs(tms).toFixed(1)} ms` +
+        ` <span class="note">(×${merger.slowmo} slow-mo)</span><br>` +
+        (st.phase === "ringdown"
+          ? `ringdown: f<sub>QNM</sub> = ${st.fGwHz.toFixed(0)} Hz`
+          : `${st.phase}: sep = ${st.separation.toFixed(2)} M · f<sub>GW</sub> = ${st.fGwHz.toFixed(1)} Hz`);
+    }
+  }
+
   // --- FPS (EMA), updated a few times a second ---
   fpsEma = fpsEma === 0 ? 1 / dt : fpsEma * 0.95 + (1 / dt) * 0.05;
   if (++fpsFrames % 15 === 0) fpsNode.textContent = `${fpsEma.toFixed(0)} fps`;
@@ -748,6 +799,18 @@ declare global {
       /** Diagnostic: |mapped camera velocity| used last frame (units of c);
        *  0 when static, bounded well below 1 while dragging. */
       camSpeed: () => number;
+      /** Merger animation control (Phase 15). */
+      merger: {
+        events: readonly string[];
+        select: (name: string | null) => void;
+        setPlaying: (v: boolean) => void;
+        restart: () => void;
+        setSlowmo: (v: number) => void;
+        playing: () => boolean;
+        /** Driver timing (physical seconds) for cross-language checks. */
+        info: () => { inspiralS: number; plungeS: number } | null;
+        state: () => import("./merger").MergerState | null;
+      };
     };
   }
 }
@@ -779,4 +842,24 @@ window.__bh = {
     return -q[0] + m.f * lq;
   },
   camSpeed: (): number => lastCamSpeed,
+  merger: {
+    events: GW_EVENTS.map((e) => e.name),
+    select: mergerSelect,
+    setPlaying: (v: boolean): void => {
+      merger.playing = v && merger.driver !== null;
+    },
+    restart: (): void => {
+      merger.tGeom = 0;
+    },
+    setSlowmo: (v: number): void => {
+      merger.slowmo = Math.max(1, v);
+    },
+    playing: (): boolean => merger.playing,
+    info: (): { inspiralS: number; plungeS: number } | null =>
+      merger.driver
+        ? { inspiralS: merger.driver.inspiralS, plungeS: merger.driver.plungeS }
+        : null,
+    state: (): import("./merger").MergerState | null =>
+      merger.driver ? merger.driver.state(merger.tGeom) : null,
+  },
 };

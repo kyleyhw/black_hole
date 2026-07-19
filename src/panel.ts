@@ -581,11 +581,51 @@ export function buildPanel(
   setInterval(updateValidity, 200);
   updateValidity();
 
-  // --- Binary merger preview (Phase 14; dynamics + chirp in Phase 15+) ---
-  const bin = section("Merger preview (static)", false, LEARN.binary);
+  // --- Merger mode: LIGO-catalog animation + static preview (Phases 14-15) ---
+  const bin = section("Merger (LIGO events)", false, LEARN.binary);
   add(bin.body, toggle("enable mode", () => params.mode === "binary", (v) => {
     params.mode = v ? "binary" : "kerr";
   }));
+  {
+    const mrow = el("label", { class: "row" });
+    const msel = el("select", { id: "gwEventSel" });
+    msel.append(el("option", { value: "" }, "static preview"));
+    // Event names come from the runtime API (lazy: __bh is assigned after
+    // buildPanel returns).
+    setTimeout(() => {
+      for (const name of window.__bh.merger.events) msel.append(el("option", { value: name }, name));
+    }, 0);
+    msel.addEventListener("change", () => {
+      window.__bh.merger.select(msel.value || null);
+      if (msel.value) params.mode = "binary";
+      for (const r of refreshers) r();
+    });
+    mrow.append(el("span", { class: "name" }, "event"), msel);
+    bin.body.append(mrow);
+  }
+  {
+    const btns = el("div", { class: "row" });
+    const play = el("button", { class: "preset", id: "mergerPlay" }, "Play");
+    play.addEventListener("click", () => {
+      window.__bh.merger.setPlaying(!window.__bh.merger.playing());
+    });
+    setInterval(() => {
+      play.textContent = window.__bh.merger.playing() ? "Pause" : "Play";
+    }, 150);
+    const rst = el("button", { class: "preset", id: "mergerRestart" }, "Restart");
+    rst.addEventListener("click", () => window.__bh.merger.restart());
+    btns.append(play, rst);
+    bin.body.append(btns);
+  }
+  add(bin.body, slider({
+    label: "slow-motion",
+    min: 5, max: 100, step: 5,
+    get: () => 25,
+    set: (v) => window.__bh.merger.setSlowmo(v),
+    fmt: (v) => `×${v.toFixed(0)}`,
+  }));
+  bin.body.append(el("div", { class: "readout", id: "mergerReadout" },
+    "select an event, then Play"));
   add(bin.body, slider({
     label: "separation",
     min: 4, max: 30, step: 0.5,

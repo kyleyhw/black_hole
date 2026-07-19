@@ -425,13 +425,13 @@ NR merger dynamics; visible GW metric perturbations; kicks; precessing spins (al
 
 75. [in-progress] `#define BINARY` shader variant: superposed boosted-KS metric terms + Sherman–Morrison inverse in GLSL; static two-hole scene (fixed separation) rendering with two shadows and inter-hole lensing; uniforms for per-hole mass/spin/position/velocity.
 76. [completed] e2e `phase13.cjs` (naming continues the suite numbering): single-hole-limit pixel parity vs Kerr mode (M₂ = 0 → identical frames), two-hole scene renders with two capture regions at predicted screen positions, far-separation consistency vs the weak-field mode; report.
-77. [in-progress] Commit; **checkpoint**: static binary renders reviewed. (Implementation and 10-suite certification complete; SwiftShader JIT pathology found and fixed — boosts are per-hole mat4 uniforms, disk compiled out of the BINARY variant; owner review of the static preview pending.)
+77. [completed] Commit; **checkpoint**: static binary renders reviewed (owner approved, 2026-07-20: "keep going").
 
 ## Phase 15: Merger Mode — Dynamics (§10.3)
 
-78. [pending] TS PN driver mirroring `pn.py` (TaylorT4 ODE, blend-to-remnant schedule, remnant swap to exact Kerr with published M_f/a_f); animation timeline with slow-motion factor and true-vs-displayed time readout; event selector UI from `gwevents.json`; play/pause/restart.
-79. [pending] e2e: separation shrinks monotonically, orbital frequency rises, merger completes to a single shadow with the remnant's r_+, timeline controls work; report.
-80. [pending] Commit; **checkpoint**: full inspiral-to-ringdown animation reviewed.
+78. [completed] TS PN driver mirroring `pn.py` (TaylorT4 ODE, blend-to-remnant schedule, remnant swap to exact Kerr with published M_f/a_f); animation timeline with slow-motion factor and true-vs-displayed time readout; event selector UI from `gwevents.json`; play/pause/restart.
+79. [completed] e2e `phase14.cjs`: separation shrinks monotonically, orbital frequency rises, merger completes to a single shadow with the remnant's r_+, timeline controls work; report.
+80. [in-progress] Commit; **checkpoint**: full inspiral-to-ringdown animation reviewed (implementation + certification complete; owner review pending).
 
 ## Phase 16: Merger Mode — Chirp Audio and Waveform Strip (§10.4, §10.6)
 

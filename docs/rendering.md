@@ -98,7 +98,7 @@ composite pass in **flat space**, deliberately: they are coordinate-surface
 markers, i.e. diagnostics, not physical objects — lensing them would
 misrepresent what they are. The About modal says so.
 
-## Binary merger preview (Phase 14)
+## Binary merger mode (Phases 14–15)
 
 The `#define BINARY` shader variant renders **two** black holes with the
 superposed boosted Kerr–Schild metric and its closed-form Sherman–Morrison
@@ -129,9 +129,18 @@ inverse (derivations.md §11). Design points:
   pipeline JIT (first draw blocked > 180 s on SwiftShader); the branchless
   matrix multiply compiles in 0.2 s, and the identity matrix keeps the
   static path bit-exact. Formula validated in the mirror (Lᵀ g L identity);
-  dormant (identity) in this static preview, driven by the PN dynamics in
-  Phase 15. For the same JIT reason the disk section is compiled out of the
-  BINARY variant entirely.
+  live during the merger animation, where each hole's tangential orbital
+  velocity v_i = r_i ω (up to √x ≈ 0.41 c at the ISCO) feeds its matrix
+  each frame. For the same JIT reason the disk section is compiled out of
+  the BINARY variant entirely.
+- **The merger animation** (`src/merger.ts`) precomputes the TaylorT4
+  inspiral at event-selection time (a few hundred RK4 steps, arrays
+  interpolated per frame), blends through the plunge on the C¹ schedule of
+  derivations.md §12, and swaps to the exact-Kerr remnant via the
+  coincident-superposition identity. The wall clock maps to physical time
+  through the slow-motion divisor; readouts show t − t_merger (physical),
+  separation, and f_GW. The TS TaylorT4 mirror is pinned against the Python
+  suite's validated GW150914 timing (0.0905 s, e2e cross-check to 1%).
 
 ## Camera model
 

@@ -687,6 +687,25 @@ knob (we are not modeling the detector response); the *frequency
 evolution* is the physics, and it is asserted numerically by an FFT of the
 rendered audio buffer against the TaylorT4 sweep.
 
+**Plunge blend schedule (schematic, labeled; Phase 15 implementation).**
+When the PN description ends at the ISCO the animation blends to the
+remnant over $T_{\rm plunge} = 1.5$ ISCO orbital periods (NR mergers take
+roughly one orbit from ISCO to peak). With $s \in [0,1]$ the blend
+parameter and $w(s) = 3s^2 - 2s^3$:
+separation follows a $C^1$ Hermite from $r = 6$ (slope matched to the PN
+$\dot r = -\dot x/x^2$ at ISCO) to $0$ with zero end slope; the orbital
+rate ramps from $\omega_{\rm ISCO}$ to the $r = 2.2\,M$ Kepler rate (a cap
+of order the light-ring rate — unbounded Kepler $\omega \to \infty$ as
+$r \to 0$ would alias); total mass sheds the radiated fraction,
+$M(s) = M[1 + (M_f/M - 1)w]$, and both spins blend to $a_f$. At $s = 1$
+the two holes are coincident and aligned, and a coincident aligned
+superposition is *exactly* a single Kerr hole
+($f_1 l l + f_2 l l = (f_1{+}f_2) l l$), so the swap to the remnant (hole 1
+with $M_2 = 0$, the validated single-hole limit) is seamless by
+construction rather than by tuning. None of this interval is a solution of
+the field equations — it is the labeled bridge across the one regime where
+only numerical relativity is honest.
+
 **Time mapping (design decision, owner-approved).** Near merger
 $f_{\rm GW}$ exceeds 100 Hz; at a 60 fps display any true-rate rendering of
 the orbit temporally aliases (Nyquist for visual rotation is 30 cycles/s).
