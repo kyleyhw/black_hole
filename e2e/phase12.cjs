@@ -125,27 +125,45 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
     const dragHide = await page.addStyleTag({
       content: "#panel,#fps,#footer,#panelToggle{display:none !important}",
     });
+    // The velocity is a WALL-CLOCK quantity, so the gesture must be paced by
+    // wall clock, not by rendered frames (settleFrames pacing stretches the
+    // same pixel sweep over however slow the software renderer is, and the
+    // estimator then correctly reports a nearly-static camera). Lighten the
+    // render so the frame rate approximates real hardware, and pace with
+    // timeouts like a hand does.
+    await page.evaluate(() => {
+      window.__bh.params.maxSteps = 150;
+      window.__bh.params.resolutionScale = 0.25;
+    });
     await settleFrames(page, 4);
     const dragRestSpeed = await page.evaluate(() => window.__bh.camSpeed());
     await page.mouse.move(160, 120);
     await page.mouse.down();
     const dragSpeeds = [];
-    for (let i = 1; i <= 10; i++) {
-      await page.mouse.move(160 + i * 12, 120);
-      await settleFrames(page, 1);
+    for (let i = 1; i <= 25; i++) {
+      await page.mouse.move(160 + i * 8, 120);
+      await page.waitForTimeout(15);
       dragSpeeds.push(await page.evaluate(() => window.__bh.camSpeed()));
     }
     await page.mouse.up();
-    await settleFrames(page, 6);
+    await page.waitForTimeout(900); // decay: window drains + EMA tail
     const dragAfterSpeed = await page.evaluate(() => window.__bh.camSpeed());
+    await page.evaluate(() => {
+      window.__bh.params.maxSteps = 250;
+      window.__bh.params.resolutionScale = 0.5;
+    });
     await dragHide.evaluate((s) => s.remove());
     const dragMax = Math.max(...dragSpeeds);
     const dragMoved = dragSpeeds.some((s) => s > 0.02); // aberration was actually active
-    // No frame-to-frame strobe: consecutive mapped speeds stay close once moving.
-    const movingSamples = dragSpeeds.filter((s) => s > 0.02);
-    const noStrobe = movingSamples.every((s, i) => i === 0 || Math.abs(s - movingSamples[i - 1]) < 0.25);
+    // Smoothness invariant: NO single-frame speed jump anywhere in the gesture
+    // (this is the class of bug that shipped twice: 0→cap snaps at drag start,
+    // cap→0 at release, and sawtooth at the pointer cadence all violate it).
+    let dragMaxJump = 0;
+    for (let i = 1; i < dragSpeeds.length; i++)
+      dragMaxJump = Math.max(dragMaxJump, Math.abs(dragSpeeds[i] - dragSpeeds[i - 1]));
     const cameraDragOk =
-      dragRestSpeed === 0 && dragMax < 0.9 && dragMoved && noStrobe && dragAfterSpeed === 0;
+      dragRestSpeed === 0 && dragMax < 0.5 && dragMoved && dragMaxJump < 0.15 &&
+      dragAfterSpeed < 0.02;
 
     // --- 6. Cinematic idle auto-orbit ---
     // Lift the test freeze; the page loaded > 4 s ago and the last click was
@@ -188,6 +206,7 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
       collapse_ok: hidden && shown,
       camera_drag_rest_speed: dragRestSpeed,
       camera_drag_max_speed: dragMax,
+      camera_drag_max_frame_jump: dragMaxJump,
       camera_drag_after_speed: dragAfterSpeed,
       camera_drag_ok: cameraDragOk,
       autoorbit_drift_rad: drift,

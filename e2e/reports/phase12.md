@@ -58,7 +58,7 @@ About modal points to it and defines a and M inline.
 | Learn modal opens, defines a/φ/g, closes | yes | ✓ |
 | Sidebar collapse + reopen | yes | ✓ |
 | Idle auto-orbit drifts, freezes when off | drift 0.2 rad, then frozen | ✓ |
-| Physical camera: drag stays bounded sub-luminal, no strobe, static at rest | max 0.481 c | ✓ |
+| Physical camera: drag graded/bounded, smooth (max frame jump 0.0098 c), static at rest | max 0.049 c | ✓ |
 
 Artifact: `screenshots/phase12-grid.png` (grid + shadow), and
 `docs/img/grid-overlay.png` for the docs.
@@ -95,25 +95,54 @@ Artifact: `screenshots/phase12-grid.png` (grid + shadow), and
   under Playwright's actionability polling; `__bhTest` falls back to 0.75 so
   the pixel thresholds in phase 5/9 (which pin nothing) stay valid.
 
-## Camera-drag regression (a real bug this check now catches)
+## Camera-drag regression (two shipped bugs this check now catches)
 
-The first cut of the moving-observer camera was verified only at the *physics*
-level (`centerQtMoving` with a synthetic velocity) and shipped broken: the raw
-per-frame finite-difference velocity of a hand-drag is superluminal in
-coordinate units (measured ~1.6 c on motion frames), so it clamped to 0.995 c —
-maximal aberration — and, because pointer events do not land on every frame,
-it **strobed** on and off (`0 0 0 1.5 0 0 0 1.5`). The camera lurched and
-flickered on every drag.
+The moving-observer camera shipped broken **twice**, each time because the
+verification did not match how a human drives it. The final check is built
+from per-frame instrumentation of real pointer gestures.
 
-The fix maps the drag to a usable physical velocity: compute it **only while
-actively dragging** (`camera.isManipulating`), EMA-smooth it (kills the
-strobe), and pass its magnitude through a sub-luminal saturating curve
-`V_max·tanh(|v|/V_ref)`, `V_max = 0.5 c` (bounds and grades the aberration). A
-still camera stays exactly static, so pixel-comparison suites are unaffected.
-Check 5b drives a **real Playwright pointer drag** and asserts, via the new
-`__bh.camSpeed()` diagnostic, that the mapped speed is 0 at rest, bounded
-(< 0.9 c) and non-strobing during the drag, and 0 again after release —
-exercising the actual interactive path the physics-only test missed.
+**Round 1 (physics-only test, shipped broken).** Verified via
+`centerQtMoving` with a synthetic velocity only. In use, the raw per-frame
+finite-difference velocity of a drag is superluminal (~1.6 c), clamped to
+0.995 c — maximal aberration — and strobed on/off because pointer events do
+not land on every frame (`0 0 0 1.5 0 0 0 1.5`).
+
+**Round 2 (batch-sampled drag test, still broken).** An
+`isManipulating`-gated EMA with a `tanh` map passed a batch-sampled drag
+test but per-frame tracing exposed three defects a user feels immediately:
+*binary saturation* — `V_ref = 1 M/s` sits an order of magnitude below real
+drag speeds (3–20 M/s), so any touch pegged the 0.5 c cap (≈29° of
+aberration); *one-frame snaps* — speed 0 → 0.47 c at gesture start and
+0.49 c → 0 at release (measured max frame-to-frame jump **0.494 c**); and a
+*sawtooth* at the pointer cadence (`0.50 0.49 0.47 0.43 | 0.50 …`). Two
+further regime bugs surfaced under tracing: the teleport guard fired on
+legitimate batched drag steps (> 1.5 M per frame), repeatedly zeroing the
+estimator mid-gesture, and on slow devices a frame period longer than the
+sliding window left the window with a single sample — velocity silently
+always zero.
+
+**Final design** (each stage tied to a measured failure): 0.32 s
+sliding-window derivative with a straddling-sample eviction rule (bridges
+pointer cadence; survives slow frames), time-constant EMA
+`k = 1 − exp(−dt/τ)`, τ = 0.15 s (fps-independent, no one-frame jumps),
+gesture gating with a 0.6 s post-input grace (decays through the release
+coast; programmatic writes render static; teleport guard only outside live
+gestures), and `V_max·tanh(|v|/V_ref)` with `V_max = 0.25 c`,
+`V_ref = 10 M/s` (graded: slow drag ≈ 0.05–0.1 c, fast sweep → cap).
+
+**Measured after the fix** (per-frame traces, three cadences): smooth ramp
+→ steady plateau → smooth decay; max frame-to-frame jump **0.024–0.031 c**
+(was 0.494); no sawtooth; still camera pixel-identical (diff = 0); slow-frame
+regime produces a working estimate.
+
+**Check 5b** drives a real Playwright pointer drag **paced by wall clock**
+(the velocity is a wall-clock quantity — frame-paced dragging on a slow
+software renderer is a genuinely slow gesture, which the estimator rightly
+reports as near-static; the earlier check failed for exactly that reason)
+under a lightened render config, and asserts via `__bh.camSpeed()`: speed
+exactly 0 at rest, bounded < 0.5 c and actually moving during the drag,
+**max frame-to-frame jump < 0.15 c** (the smoothness invariant violated by
+both shipped bugs), and decay to < 0.02 c after release.
 
 ## Note on the mass question specifically
 

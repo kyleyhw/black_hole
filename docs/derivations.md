@@ -431,18 +431,35 @@ steered camera is.
 **Mapping a drag to a velocity (rendering layer).** Timelike-ness requires
 $B > 0$, but a hand-drag is wildly superluminal in coordinate units: under
 the ~1-second-$\approx$-1-$M$ mapping a camera at $r = 18M$ swept even
-gently moves at *many* $c$. Feeding that raw finite-difference velocity to
-$u$ would peg every motion frame at the light cone (maximal aberration) and,
-because pointer input does not land on every frame, strobe on and off. So
-the interactive velocity is treated as a UI quantity: it is computed **only
-while actively dragging** (idle / programmatic moves stay static), EMA-
-smoothed across frames to remove the strobe, and its magnitude is passed
-through a **sub-luminal saturating map** $|v| \mapsto V_{\max}\tanh(|v|/V_{\rm
-ref})$ (with $V_{\max} = 0.5$, so aberration is bounded and graded rather
-than clamped). The $B \ge B_{\min}$ floor inside `movingObserver` then only
-ever acts as a numerical backstop. The choice of $V_{\max}$ is a feel
-parameter, not physics — the observer is a genuine timelike worldline at
-whatever speed the map assigns.
+gently moves at 3–20 $c$ (measured). Feeding a raw per-frame finite
+difference to $u$ fails in three measured ways: *binary saturation* (any
+touch pegs the cap), *one-frame snaps* at gesture start and release
+(≈0.5 $c$ per frame), and a *sawtooth* at the pointer-event cadence, since
+input events do not land on every frame. The estimator therefore has four
+stages, each tied to one failure mode:
+
+1. **Sliding-window derivative** (0.32 s): $v_{\rm raw}$ is the position
+   difference across a window *longer than the slowest pointer cadence*, so
+   individual event steps bridge rather than spike; eviction always keeps
+   one sample straddling the window edge so the derivative survives frame
+   periods longer than the window (slow devices).
+2. **Time-constant EMA** ($\tau = 0.15$ s, $k = 1 - e^{-\Delta t/\tau}$):
+   fps-independent smoothing — no single-frame jumps at any refresh rate.
+3. **Gesture gating**: the estimator runs while the pointer is down and for
+   0.6 s after the last user input, so the velocity decays smoothly through
+   the release coast instead of snapping to zero; programmatic camera writes
+   (tests, presets, resets) are not motion — they render static, and any
+   one-frame jump > 1.5 M outside a live gesture clears the estimator.
+4. **Saturating map** $|v| \mapsto V_{\max}\tanh(|v|/V_{\rm ref})$ with
+   $V_{\max} = 0.25$ and $V_{\rm ref} = 10\,M/\text{s}$ — chosen *inside*
+   the real drag-speed range, so a slow drag gets mild aberration
+   (~0.05–0.1 $c$) and only a fast sweep approaches the cap (~14° maximal
+   aberration at screen center).
+
+The $B \ge B_{\min}$ floor inside `movingObserver` then only ever acts as a
+numerical backstop. $V_{\max}$ and $V_{\rm ref}$ are feel parameters, not
+physics — the observer is a genuine timelike worldline at whatever speed
+the map assigns, and $v = 0$ recovers the static observer exactly.
 
 **Free fall.** Release from rest means initial $u^i = 0$,
 $u^t = 1/\sqrt{-g_{tt}}$ — again requiring an exterior starting point; the
