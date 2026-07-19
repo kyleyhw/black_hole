@@ -77,14 +77,16 @@ export function movingObserver(x: Vec3, v: Vec3, a: number): Vec4 {
   return [ut, ut * s * v[0], ut * s * v[1], ut * s * v[2]];
 }
 
-/**
- * Orthonormal tetrad at x for observer 4-velocity u (g(u,u) = -1):
- * e0 = u; spatial legs seeded from the flat camera basis (right, up,
- * forward) and Gram-Schmidt-orthonormalized under g. Returns
- * [e0, eRight, eUp, eForward], contravariant.
- */
-export function buildTetrad(x: Vec3, u: Vec4, right: Vec3, up: Vec3, forward: Vec3, a: number): [Vec4, Vec4, Vec4, Vec4] {
-  const m = metricTerms(x, a);
+/** Gram-Schmidt core shared by the single-Kerr and binary tetrads: e0 = u,
+ * spatial legs seeded from the flat camera basis and orthonormalized under
+ * the metric inner product `dot`. */
+function gramSchmidt(
+  u: Vec4,
+  right: Vec3,
+  up: Vec3,
+  forward: Vec3,
+  dot: (v: Vec4, w: Vec4) => number,
+): [Vec4, Vec4, Vec4, Vec4] {
   const legs: Vec4[] = [u];
   const seeds: Vec4[] = [
     [0, right[0], right[1], right[2]],
@@ -99,12 +101,120 @@ export function buildTetrad(x: Vec3, u: Vec4, right: Vec3, up: Vec3, forward: Ve
   ];
   for (const seed of seeds) {
     // Project out u (g(u,u) = -1 flips the usual sign) and prior legs.
-    let v: Vec4 = axpy(seed, gDot(seed, u, m), u);
-    for (const leg of legs.slice(1)) v = axpy(v, -gDot(v, leg, m), leg);
-    const norm = Math.sqrt(Math.max(gDot(v, v, m), 1e-16));
+    let v: Vec4 = axpy(seed, dot(seed, u), u);
+    for (const leg of legs.slice(1)) v = axpy(v, -dot(v, leg), leg);
+    const norm = Math.sqrt(Math.max(dot(v, v), 1e-16));
     legs.push([v[0] / norm, v[1] / norm, v[2] / norm, v[3] / norm]);
   }
   const [e0, e1, e2, e3] = legs;
   if (!e0 || !e1 || !e2 || !e3) throw new Error("tetrad construction failed");
   return [e0, e1, e2, e3];
+}
+
+/**
+ * Orthonormal tetrad at x for observer 4-velocity u (g(u,u) = -1):
+ * e0 = u; spatial legs seeded from the flat camera basis (right, up,
+ * forward) and Gram-Schmidt-orthonormalized under g. Returns
+ * [e0, eRight, eUp, eForward], contravariant.
+ */
+export function buildTetrad(x: Vec3, u: Vec4, right: Vec3, up: Vec3, forward: Vec3, a: number): [Vec4, Vec4, Vec4, Vec4] {
+  const m = metricTerms(x, a);
+  return gramSchmidt(u, right, up, forward, (v, w) => gDot(v, w, m));
+}
+
+// --- Binary (superposed boosted Kerr-Schild) support: merger mode ----------
+
+/** One KS term with the FULL covector l4 = [t, x, y, z] (l_t = 1 static;
+ * boosts change it — derivations.md §11). */
+export interface BinaryTerm {
+  readonly f: number;
+  readonly l4: Vec4;
+}
+
+export interface BinaryHole {
+  readonly mass: number;
+  readonly a: number; // spin length chi * M
+  readonly center: Vec3;
+  readonly velocity: Vec3; // instantaneous; (0,0,0) = static
+}
+
+/** Boosted-KS term of one hole at lab field point x (t = 0 snapshot);
+ * mirrors validation/superposed.py `ks_term` and the shader `binaryTerm`. */
+export function binaryTerm(x: Vec3, h: BinaryHole): BinaryTerm {
+  let dx: Vec3 = [x[0] - h.center[0], x[1] - h.center[1], x[2] - h.center[2]];
+  const v = h.velocity;
+  const v2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+  let gamma = 1;
+  let vhat: Vec3 = [0, 0, 0];
+  const boosted = v2 > 1e-24;
+  if (boosted) {
+    gamma = 1 / Math.sqrt(1 - v2);
+    const vn = Math.sqrt(v2);
+    vhat = [v[0] / vn, v[1] / vn, v[2] / vn];
+    const par = dx[0] * vhat[0] + dx[1] * vhat[1] + dx[2] * vhat[2];
+    dx = [
+      dx[0] + (gamma - 1) * par * vhat[0],
+      dx[1] + (gamma - 1) * par * vhat[1],
+      dx[2] + (gamma - 1) * par * vhat[2],
+    ];
+  }
+  const r = ksRadius(dx, h.a);
+  const r2 = r * r;
+  const f = (2 * h.mass * r2 * r) / Math.max(r2 * r2 + h.a * h.a * dx[2] * dx[2], 1e-24);
+  const ra2 = r2 + h.a * h.a;
+  const ls: Vec3 = [
+    (r * dx[0] + h.a * dx[1]) / ra2,
+    (r * dx[1] - h.a * dx[0]) / ra2,
+    dx[2] / r,
+  ];
+  if (!boosted) return { f, l4: [1, ls[0], ls[1], ls[2]] };
+  const vls = v[0] * ls[0] + v[1] * ls[1] + v[2] * ls[2];
+  const vhls = vhat[0] * ls[0] + vhat[1] * ls[1] + vhat[2] * ls[2];
+  return {
+    f,
+    l4: [
+      gamma * (1 - vls),
+      -gamma * v[0] + ls[0] + (gamma - 1) * vhls * vhat[0],
+      -gamma * v[1] + ls[1] + (gamma - 1) * vhls * vhat[1],
+      -gamma * v[2] + ls[2] + (gamma - 1) * vhls * vhat[2],
+    ],
+  };
+}
+
+/** g(v, w) for the superposed metric: eta(v,w) + sum_i f_i (l_i.v)(l_i.w).
+ * With the second term's f = 0 this adds exactly 0.0, so the single-hole
+ * limit is bit-identical to gDot — the M2 -> 0 parity anchor. */
+export function gDotBinary(v: Vec4, w: Vec4, terms: readonly BinaryTerm[]): number {
+  let s = -v[0] * w[0] + v[1] * w[1] + v[2] * w[2] + v[3] * w[3];
+  for (const t of terms) {
+    const lv = t.l4[0] * v[0] + t.l4[1] * v[1] + t.l4[2] * v[2] + t.l4[3] * v[3];
+    const lw = t.l4[0] * w[0] + t.l4[1] * w[1] + t.l4[2] * w[2] + t.l4[3] * w[3];
+    s += t.f * lv * lw;
+  }
+  return s;
+}
+
+/** Static observer in the binary metric: u = dt/sqrt(-g_tt),
+ * -g_tt = 1 - sum f_i l4_t^2. Exists where the sum is < 1 (the binary
+ * generalization of "outside the ergosphere"). */
+export function staticObserverBinary(x: Vec3, holes: readonly BinaryHole[]): Vec4 {
+  const terms = holes.map((h) => binaryTerm(x, h));
+  let b = 1;
+  for (const t of terms) b -= t.f * t.l4[0] * t.l4[0];
+  if (b <= 0) throw new Error("static observer requested inside the binary ergoregion");
+  return [1 / Math.sqrt(b), 0, 0, 0];
+}
+
+/** Tetrad under the superposed metric; same Gram-Schmidt core as the
+ * single-Kerr tetrad. */
+export function buildTetradBinary(
+  x: Vec3,
+  u: Vec4,
+  right: Vec3,
+  up: Vec3,
+  forward: Vec3,
+  holes: readonly BinaryHole[],
+): [Vec4, Vec4, Vec4, Vec4] {
+  const terms = holes.map((h) => binaryTerm(x, h));
+  return gramSchmidt(u, right, up, forward, (v, w) => gDotBinary(v, w, terms));
 }

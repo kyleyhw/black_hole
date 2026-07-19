@@ -39,6 +39,9 @@ from pn import (
 from superposed import (
     Hole,
     deflection_binary,
+    hamiltonian_binary,
+    hamiltonian_scalar,
+    lorentz_boost,
     metric_and_inverse,
 )
 from weakfield import Mass, deflection_angle
@@ -515,16 +518,66 @@ def study_superposed() -> StudyResult:
     h2 = Hole(0.6, -0.18, (0.0, 6.0, 0.0))
 
     # (a) Exactness of the closed-form inverse at random field points
-    # (outside both capture zones; |x| in [2.5, 40] around either hole).
+    # (outside both capture zones; |x| in [2.5, 40] around either hole), and
+    # of the matrix-free scalar Hamiltonian the SHADER implements: it must
+    # agree with (1/2) p g^{-1} p from the matrix inverse to roundoff. Random
+    # momenta with |p| ~ 1 (the traced-ray normalization).
     max_inv_err = 0.0
+    max_scalar_err = 0.0
     for _ in range(200):
         pt = tuple(float(v) for v in rng.uniform(-40, 40, 3))
         r1 = math.dist(pt, h1.center)
         r2 = math.dist(pt, h2.center)
         if r1 < 2.5 or r2 < 2.5:
             continue
-        g, g_inv = metric_and_inverse((pt[0], pt[1], pt[2]), h1, h2)
+        xf = (pt[0], pt[1], pt[2])
+        g, g_inv = metric_and_inverse(xf, h1, h2)
         max_inv_err = max(max_inv_err, float(np.abs(g @ g_inv - np.eye(4)).max()))
+        pv = tuple(float(v) for v in rng.normal(0.0, 1.0, 3))
+        pm = (pv[0], pv[1], pv[2])
+        max_scalar_err = max(
+            max_scalar_err,
+            abs(
+                hamiltonian_scalar(xf, pm, 1.0, h1, h2)
+                - hamiltonian_binary(xf, pm, 1.0, h1, h2)
+            ),
+        )
+
+    # (a') Boosted holes (Phase 14): the boosted KS term must assemble the
+    # same metric as explicitly transforming the rest-frame metric,
+    # g_lab = L^T g_rest L (a pointwise identity, exact for a single hole),
+    # and the Sherman-Morrison inverse must stay exact with both holes
+    # boosted (boosts preserve the eta-nullity of l).
+    vel = (0.20, 0.10, -0.15)
+    hb = Hole(1.0, 0.7, (2.0, -1.0, 0.5), vel)
+    zero = Hole(0.0, 0.0, (100.0, 0.0, 0.0))
+    ll = lorentz_boost(vel)
+    max_boost_err = 0.0
+    max_boost_inv_err = 0.0
+    for _ in range(50):
+        pt = tuple(float(v) for v in rng.uniform(-30, 30, 3))
+        if math.dist(pt, hb.center) < 4.0:
+            continue
+        xf = (pt[0], pt[1], pt[2])
+        g_lab, _ = metric_and_inverse(xf, hb, zero)
+        # Rest-frame comparison: transform the t = 0 field point, evaluate a
+        # static hole there, and pull the whole metric back with L.
+        x4 = ll @ np.array(
+            [0.0, xf[0] - hb.center[0], xf[1] - hb.center[1], xf[2] - hb.center[2]]
+        )
+        rest_hole = Hole(hb.mass, hb.a, (0.0, 0.0, 0.0))
+        g_rest, _ = metric_and_inverse(
+            (float(x4[1]), float(x4[2]), float(x4[3])), rest_hole, zero
+        )
+        max_boost_err = max(
+            max_boost_err, float(np.abs(ll.T @ g_rest @ ll - g_lab).max())
+        )
+        # Two boosted holes: inverse must remain exact.
+        hb2 = Hole(0.6, -0.18, (-3.0, 4.0, 0.0), (-0.1, 0.25, 0.05))
+        gb, gbi = metric_and_inverse(xf, hb, hb2)
+        max_boost_inv_err = max(
+            max_boost_inv_err, float(np.abs(gb @ gbi - np.eye(4)).max())
+        )
 
     # (b) Single-hole limit: with h2's mass scaled down, g_inv must approach
     # the exact single-Kerr inverse linearly in M2 (the superposition error
@@ -574,6 +627,9 @@ def study_superposed() -> StudyResult:
 
     return {
         "max_inverse_err": max_inv_err,
+        "max_scalar_h_err": max_scalar_err,
+        "max_boost_err": max_boost_err,
+        "max_boost_inv_err": max_boost_inv_err,
         "limit_slope": slope,
         "limit_err_at_1e8": float(err_arr[-1]),
         "deflection": alpha,
@@ -659,6 +715,14 @@ def main() -> None:
             results["superposed"]["additivity_ratio"] - 1.0
         )
         < 0.03,
+        "scalar H = matrix H (< 1e-13)": results["superposed"]["max_scalar_h_err"]
+        < 1e-13,
+        "boosted KS = L^T g L (< 1e-12)": results["superposed"]["max_boost_err"]
+        < 1e-12,
+        "boosted binary inverse exact (< 1e-12)": results["superposed"][
+            "max_boost_inv_err"
+        ]
+        < 1e-12,
     }
     for label, ok in checks.items():
         print(("PASS " if ok else "FAIL ") + label)

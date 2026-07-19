@@ -36,20 +36,55 @@ Vec3 = tuple[float, float, float]
 @dataclass(frozen=True)
 class Hole:
     """One Kerr-Schild hole: mass, spin PER UNIT MASS times mass (a = chi*M,
-    a length), and center position (static in Phase 13)."""
+    a length), center position, and coordinate velocity (instantaneous
+    boost; (0,0,0) = static, the Phase-13 scope)."""
 
     mass: float
     a: float
     center: Vec3
+    velocity: Vec3 = (0.0, 0.0, 0.0)
+
+
+def lorentz_boost(v: Vec3) -> NDArray[np.float64]:
+    """Boost matrix L mapping lab coordinates to the rest frame of an object
+    moving at coordinate velocity v in the lab: x' = L x, with
+    t' = gamma (t - v.x), x'_par = gamma (x_par - v t), x'_perp = x_perp.
+    Covectors pull back as l_mu = (L^T l')_mu; metrics as g = L^T g' L.
+    """
+    v2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+    ll = np.eye(4)
+    if v2 < 1e-24:
+        return ll
+    gamma = 1.0 / math.sqrt(1.0 - v2)
+    vv = np.array(v)
+    ll[0, 0] = gamma
+    ll[0, 1:] = -gamma * vv
+    ll[1:, 0] = -gamma * vv
+    # Spatial block: identity + (gamma - 1) v v^T / v^2.
+    ll[1:, 1:] = np.eye(3) + (gamma - 1.0) * np.outer(vv, vv) / v2
+    return ll
 
 
 def ks_term(x: Vec3, hole: Hole) -> tuple[float, NDArray[np.float64]]:
-    """(f, l_mu) of one hole at field point x, in hole-centered coordinates.
+    """(f, l_mu) of one hole at lab field point x (t = 0 snapshot).
 
-    l_mu = (1, l_i) with the standard KS null covector; f = 2 M r^3 /
-    (r^4 + a^2 z^2). Reduces to kerr.py's metric_terms for M = 1, center 0.
+    Static hole: l_mu = (1, l_i) with the standard KS null covector and
+    f = 2 M r^3 / (r^4 + a^2 z^2); reduces to kerr.py's metric_terms for
+    M = 1, center 0. Moving hole (boosted KS, exact for a single hole):
+    evaluate (f, l') at the rest-frame position of the field point and pull
+    the covector back with the boost, l = L^T l'. Boosts preserve
+    eta-nullity of l, so the Sherman-Morrison inverse machinery is
+    unchanged. The rest-frame metric is static, so only the spatial part of
+    the boosted field point matters — this is what makes the t = 0 snapshot
+    well-defined (frozen-metric rendering; derivations.md section 11).
     """
     dx = (x[0] - hole.center[0], x[1] - hole.center[1], x[2] - hole.center[2])
+    v = hole.velocity
+    boosted = v[0] * v[0] + v[1] * v[1] + v[2] * v[2] > 1e-24
+    if boosted:
+        ll = lorentz_boost(v)
+        x4 = ll @ np.array([0.0, dx[0], dx[1], dx[2]])
+        dx = (float(x4[1]), float(x4[2]), float(x4[3]))
     a = hole.a
     r = ks_radius(dx, a)
     r2 = r * r
@@ -63,6 +98,8 @@ def ks_term(x: Vec3, hole: Hole) -> tuple[float, NDArray[np.float64]]:
             dx[2] / r,
         ]
     )
+    if boosted:
+        l_mu = lorentz_boost(v).T @ l_mu
     return f, l_mu
 
 
@@ -92,6 +129,33 @@ def hamiltonian_binary(x: Vec3, p: Vec3, pt: float, h1: Hole, h2: Hole) -> float
     _, g_inv = metric_and_inverse(x, h1, h2)
     p4 = np.array([pt, p[0], p[1], p[2]])
     return 0.5 * float(p4 @ g_inv @ p4)
+
+
+def hamiltonian_scalar(x: Vec3, p: Vec3, pt: float, h1: Hole, h2: Hole) -> float:
+    """The matrix-free form of hamiltonian_binary that the SHADER implements
+    (derivations.md section 11): expanding p g^{-1} p with the Sherman-
+    Morrison inverse gives, with raised L_i = eta^{-1} l_i,
+
+        s_i = L_i . p4 = -l_it pt + l_is . p        (i = 1, 2)
+        c   = eta(l1, l2) = -l1t l2t + l1s . l2s
+        D   = 1 - f1 f2 c^2
+        H   = 1/2 [ -pt^2 + |p|^2 - f1 s1^2 - (f2/D)(s2 - f1 c s1)^2 ]
+
+    f2 = 0 reduces H bit-for-bit to the single-Kerr form (the shader's
+    M2 -> 0 pixel-parity anchor). Checked against the matrix form to
+    machine precision in the validation suite.
+    """
+    f1, l1 = ks_term(x, h1)
+    f2, l2 = ks_term(x, h2)
+    s1 = -l1[0] * pt + l1[1] * p[0] + l1[2] * p[1] + l1[3] * p[2]
+    s2 = -l2[0] * pt + l2[1] * p[0] + l2[2] * p[1] + l2[3] * p[2]
+    c = -l1[0] * l2[0] + l1[1] * l2[1] + l1[2] * l2[2] + l1[3] * l2[3]
+    d = 1.0 - f1 * f2 * c * c
+    if abs(d) < D_MIN:
+        raise ValueError("Sherman-Morrison denominator underflow (horizon overlap)")
+    wp = s2 - f1 * c * s1
+    p2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2]
+    return 0.5 * (-pt * pt + p2 - f1 * s1 * s1 - (f2 / d) * wp * wp)
 
 
 def initial_pt_binary(x: Vec3, p: Vec3, h1: Hole, h2: Hole) -> float:

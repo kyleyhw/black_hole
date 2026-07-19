@@ -23,7 +23,11 @@ export interface PanelParams {
   autoOrbit: boolean; // cinematic idle drift when the user is not interacting
   diskSense: 1 | -1; // orbital flow: +1 prograde, -1 retrograde
   diskIncl: number; // disk tilt (rad); kinematic approximation for a != 0
-  mode: "kerr" | "multi"; // exact Kerr vs linearized multi-mass
+  mode: "kerr" | "multi" | "binary"; // exact Kerr / linearized multi-mass / merger preview
+  binarySep: number; // binary preview: barycentric separation (M)
+  binaryQ: number; // binary preview: mass ratio M2/M1
+  binaryChi1: number; // binary preview: aligned spin of the primary
+  binaryChi2: number; // binary preview: aligned spin of the secondary
   masses: { m: number; pos: [number, number, number] }[];
 }
 
@@ -351,6 +355,19 @@ const LEARN = {
       would-be Schwarzschild radii, where the approximation has long broken
       down — they are regularizations, not horizons.</p>`,
   },
+  binary: {
+    title: "Binary preview (superposed Kerr\u2013Schild)",
+    html: `<p>Two black holes rendered with a <b>superposed Kerr\u2013Schild
+      metric</b>: g = \u03b7 + f\u2081l\u2081l\u2081 + f\u2082l\u2082l\u2082, whose inverse stays
+      closed-form via two Sherman\u2013Morrison updates. This is a controlled
+      approximation \u2014 exact for each hole alone, with error of order
+      M\u2081M\u2082/d at separation d \u2014 the same construction used to build
+      binary initial data in numerical relativity. Light propagation through
+      this metric is integrated exactly, so you see genuine inter-hole
+      lensing: each shadow is deformed and multiply imaged by the other
+      hole. This static preview becomes the LIGO-catalog merger animation
+      (orbits, chirp audio) in the next phase.</p>`,
+  },
   tilt: {
     title: "Disk tilt",
     html: `<p>Tilting the disk plane is exact at a = 0 (spherical symmetry
@@ -564,6 +581,29 @@ export function buildPanel(
   setInterval(updateValidity, 200);
   updateValidity();
 
+  // --- Binary merger preview (Phase 14; dynamics + chirp in Phase 15+) ---
+  const bin = section("Merger preview (static)", false, LEARN.binary);
+  add(bin.body, toggle("enable mode", () => params.mode === "binary", (v) => {
+    params.mode = v ? "binary" : "kerr";
+  }));
+  add(bin.body, slider({
+    label: "separation",
+    min: 4, max: 30, step: 0.5,
+    get: () => params.binarySep,
+    set: (v) => (params.binarySep = v),
+    fmt: (v) => `${v.toFixed(1)} M`,
+  }));
+  add(bin.body, slider({
+    label: "mass ratio q",
+    min: 0.1, max: 1, step: 0.05,
+    get: () => params.binaryQ,
+    set: (v) => (params.binaryQ = v),
+    fmt: (v) => v.toFixed(2),
+  }));
+  const binNote = el("div", { class: "note-row" });
+  binNote.append(el("span", {}, "superposed-KS approximation \u2014 error \u223c M\u2081M\u2082/d "));
+  bin.body.append(binNote);
+
   // --- Presets ---
   const pr = section("Presets", true);
   for (const preset of PRESETS) {
@@ -596,7 +636,7 @@ export function buildPanel(
     infoBtn(LEARN.notation.title, LEARN.notation.html),
   );
 
-  panel.append(header, bh.root, disk.root, cam.root, q.root, ov.root, mm.root, pr.root);
+  panel.append(header, bh.root, disk.root, cam.root, q.root, ov.root, mm.root, bin.root, pr.root);
   document.body.append(panel);
 
   // Sidebar show/hide: a persistent tab that collapses the whole panel.

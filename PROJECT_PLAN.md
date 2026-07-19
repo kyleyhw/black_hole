@@ -419,13 +419,13 @@ NR merger dynamics; visible GW metric perturbations; kicks; precessing spins (al
 71. [completed] Derivations first (project pattern): `docs/derivations.md` §11 superposed boosted Kerr–Schild metric and the exact two-step Sherman–Morrison inverse (with the single-hole-limit and denominator-guard analysis); §12 TaylorT4 PN phasing (nonspinning 3.5PN + 1.5PN spin-orbit via χ_eff, coefficients cited to Boyle et al. 2007), chirp mass, leading-order chirp time, Newtonian-order separation mapping, and the slow-motion/true-rate time-mapping design with the temporal-aliasing argument; §13 remnant (published M_f, a_f) and (2,2,0) QNM frequency/quality fits (Berti–Cardoso–Will). References extended.
 72. [completed] Curated event catalog `src/gwevents.json`: six BBH events with median source-frame m₁, m₂, χ_eff, M_f, a_f, D_L, date, per-event f_low and audio-shift default, catalog DOI; retrieval provenance noted in the file header and docs. Owner spot-check of the table against the GWOSC event portal is part of the checkpoint.
 73. [completed] Validation modules: `validation/pn.py` (TaylorT4 driver; checks: leading-order chirp-time formula agreement at low frequency, PN-order convergence of accumulated phase, GW150914 time-from-35-Hz ≈ 0.2 s, QNM fit values vs published GW150914 ringdown ≈ 250 Hz) and `validation/superposed.py` (superposed-KS metric + Sherman–Morrison inverse; checks: g·g⁻¹ = 1 to machine precision, single-hole limit vs `kerr.py` as M₂ → 0, far-field two-hole deflection additivity vs the weak-field mode). New studies + plots wired into `run_validation.py` and the report.
-74. [in-progress] Commit; **checkpoint**: derivations §11–13 and the validation results presented to the owner for review before any shader work (Phase 14 gate).
+74. [completed] Commit; **checkpoint**: derivations §11–13 and the validation results presented to the owner for review before any shader work (Phase 14 gate).
 
 ## Phase 14: Merger Mode — BINARY Shader Variant (§10.2)
 
-75. [pending] `#define BINARY` shader variant: superposed boosted-KS metric terms + Sherman–Morrison inverse in GLSL; static two-hole scene (fixed separation) rendering with two shadows and inter-hole lensing; uniforms for per-hole mass/spin/position/velocity.
-76. [pending] e2e `phase13.cjs` (naming continues the suite numbering): single-hole-limit pixel parity vs Kerr mode (M₂ = 0 → identical frames), two-hole scene renders with two capture regions at predicted screen positions, far-separation consistency vs the weak-field mode; report.
-77. [pending] Commit; **checkpoint**: static binary renders reviewed.
+75. [in-progress] `#define BINARY` shader variant: superposed boosted-KS metric terms + Sherman–Morrison inverse in GLSL; static two-hole scene (fixed separation) rendering with two shadows and inter-hole lensing; uniforms for per-hole mass/spin/position/velocity.
+76. [completed] e2e `phase13.cjs` (naming continues the suite numbering): single-hole-limit pixel parity vs Kerr mode (M₂ = 0 → identical frames), two-hole scene renders with two capture regions at predicted screen positions, far-separation consistency vs the weak-field mode; report.
+77. [in-progress] Commit; **checkpoint**: static binary renders reviewed. (Implementation and 10-suite certification complete; SwiftShader JIT pathology found and fixed — boosts are per-hole mat4 uniforms, disk compiled out of the BINARY variant; owner review of the static preview pending.)
 
 ## Phase 15: Merger Mode — Dynamics (§10.3)
 

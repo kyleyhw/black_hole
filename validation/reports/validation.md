@@ -1,12 +1,12 @@
 # Validation Suite Report
 
-**Command:** `uv run python run_validation.py` · **Total runtime:** 23.4 s
-(convergence 11.6 s, b_crit 1.2 s,
-photon shell 6.2 s, drift 0.4 s,
-plunge 2.4 s, deflection 0.6 s,
-PN chirp 0.2 s, superposed KS 0.9 s)
+**Command:** `uv run python run_validation.py` · **Total runtime:** 23.7 s
+(convergence 11.4 s, b_crit 1.2 s,
+photon shell 6.4 s, drift 0.4 s,
+plunge 2.4 s, deflection 0.7 s,
+PN chirp 0.2 s, superposed KS 1.0 s)
 
-**Result: PASS** — 20/20 checks.
+**Result: PASS** — 23/23 checks.
 
 The suite mirrors the shader's exact algorithm (Hamiltonian, RK4,
 central-difference gradients, adaptive step, termination) in float64
@@ -154,7 +154,7 @@ to the slope-1 guide confirm the superposition error is first order in the
 second hole's amplitude, i.e. the limit is approached at the expected rate.
 Right, measured deflection past two equal holes vs the additive prediction
 Σ 4Mₖ/bₖ.
-**Inverse exactness: max |g·g⁻¹ − 1| = 4.44e-16 over 200
+**Inverse exactness: max |g·g⁻¹ − 1| = 3.33e-16 over 200
 random strong-field points; limit slope 1.000; additivity
 ratio 0.9958 at b = 300 M.**
 
@@ -187,6 +187,9 @@ the Phase 14 shader and carries its own check).
 | binary inverse exact (< 1e-12) | ✓ |
 | single-hole-limit slope 1 (±0.1) | ✓ |
 | binary far-field additivity within 3% | ✓ |
+| scalar H = matrix H (< 1e-13) | ✓ |
+| boosted KS = L^T g L (< 1e-12) | ✓ |
+| boosted binary inverse exact (< 1e-12) | ✓ |
 
 ## Failure handling
 

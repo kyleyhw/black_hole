@@ -69,6 +69,21 @@ float wfNearest(vec3 x) {
   return dmin;
 }
 
+// --- Binary merger mode (compiled with #define BINARY) ---
+// Superposed boosted Kerr-Schild metric with the exact Sherman-Morrison
+// inverse in scalar form (derivations.md §11). Spins are +z-aligned per the
+// aligned-spin model (PROJECT_PLAN §10.7). uB*A = chi*M (a length);
+// velocities are instantaneous coordinate velocities of the frozen-metric
+// snapshot — zero in the Phase 14 static preview, driven in Phase 15.
+uniform vec3 uB1Pos;
+uniform float uB1M;
+uniform float uB1A;
+uniform mat4 uB1Boost;  // lab -> rest boost of hole 1 (identity when static)
+uniform vec3 uB2Pos;
+uniform float uB2M;
+uniform float uB2A;
+uniform mat4 uB2Boost;
+
 const float R_ESCAPE = 200.0;  // escape radius (M); camera max is 60 M
 const int HARD_CAP = 1024;     // absolute loop bound (driver-safe)
 
@@ -96,12 +111,64 @@ void metricTerms(vec3 x, float a, out float f, out vec3 l) {
   l = vec3((r * x.x + a * x.y) / ra2, (r * x.y - a * x.x) / ra2, x.z / r);
 }
 
+#ifdef BINARY
+// Boosts enter as PER-HOLE mat4 UNIFORMS (lab -> rest, acting on (t,x,y,z)
+// column vectors), computed CPU-side each frame. Rationale: the branchy
+// in-shader boost (early return + gamma math), inlined ~56x through the
+// RK4/FD call tree, blew up the software-rasterizer pipeline JIT (first
+// draw blocked > 180 s on SwiftShader); a branchless matrix multiply
+// compiles in ~0.2 s and is bit-exact for identity (static holes), which
+// preserves the M2 -> 0 parity anchor. The covector pulls back with the
+// transpose: l = B^T l' (derivations.md sec. 11).
+
+// Rest-frame KS radius about one hole (termination + FD-eps guides).
+float binaryRadius(vec3 x, vec3 c, float a, mat4 B) {
+  return ksRadius((B * vec4(0.0, x - c)).yzw, a);
+}
+
+// One boosted-KS term: f and the FULL null covector, packed (l_xyz, l_t).
+void binaryTerm(vec3 x, vec3 c, float M, float a, mat4 B, out float f, out vec4 l4) {
+  vec3 dxr = (B * vec4(0.0, x - c)).yzw;
+  float r = ksRadius(dxr, a);
+  float r2 = r * r;
+  f = 2.0 * M * r2 * r / max(r2 * r2 + a * a * dxr.z * dxr.z, 1e-12);
+  float ra2 = r2 + a * a;
+  vec3 ls = vec3((r * dxr.x + a * dxr.y) / ra2, (r * dxr.y - a * dxr.x) / ra2, dxr.z / r);
+  vec4 lt = transpose(B) * vec4(1.0, ls);  // (t, x, y, z) ordering
+  l4 = vec4(lt.yzw, lt.x);
+}
+
+// Scalars of the closed-form inverse (derivations.md §11):
+//   s_i = L_i.p4 = l_is.p - l_it pt,  c = eta(l1,l2),  D = 1 - f1 f2 c^2.
+// The D floor keeps transient FD probes finite in the two-horizon overlap
+// (that region is always inside the capture zone).
+void binaryScalars(vec3 x, vec3 p, float pt,
+                   out float f1, out vec4 l1, out float f2, out vec4 l2,
+                   out float s1, out float s2, out float cc, out float D) {
+  binaryTerm(x, uB1Pos, uB1M, uB1A, uB1Boost, f1, l1);
+  binaryTerm(x, uB2Pos, uB2M, uB2A, uB2Boost, f2, l2);
+  s1 = dot(l1.xyz, p) - l1.w * pt;
+  s2 = dot(l2.xyz, p) - l2.w * pt;
+  cc = dot(l1.xyz, l2.xyz) - l1.w * l2.w;
+  D = max(1.0 - f1 * f2 * cc * cc, 1e-4);
+}
+#endif
+
 // Hamiltonian H = 1/2 g^{munu} p_mu p_nu with p_t = pt (§3):
 //   2H = -pt^2 + |p|^2 - f (l^mu p_mu)^2,  l^mu p_mu = dot(l,p) - pt.
 float hamiltonian(vec3 x, vec3 p, float pt, float a) {
 #ifdef WEAK_FIELD
   float phi = wfPhi(x);
   return 0.5 * (-pt * pt / (1.0 + 2.0 * phi) + dot(p, p) / (1.0 - 2.0 * phi));
+#elif defined(BINARY)
+  // 2H = -pt^2 + |p|^2 - f1 s1^2 - (f2/D)(s2 - f1 c s1)^2. With f2 = 0 this
+  // reduces BIT-FOR-BIT to the single-Kerr branch (the M2 -> 0 pixel-parity
+  // anchor); agreement with the matrix inverse is a suite check (study 8).
+  float f1, f2, s1, s2, cc, D;
+  vec4 l1, l2;
+  binaryScalars(x, p, pt, f1, l1, f2, l2, s1, s2, cc, D);
+  float wp = s2 - f1 * cc * s1;
+  return 0.5 * (-pt * pt + dot(p, p) - f1 * s1 * s1 - (f2 / D) * wp * wp);
 #else
   float f;
   vec3 l;
@@ -122,6 +189,18 @@ void rhs(vec3 x, vec3 p, float pt, float a, out vec3 dx, out vec3 dp) {
 #ifdef WEAK_FIELD
   dx = p / (1.0 - 2.0 * wfPhi(x));
   float eps = 2e-3 * max(wfNearest(x), 1.0);
+#elif defined(BINARY)
+  // dx^i = g^{i nu} p_nu = p - f1 s1 l1s - (f2/D) wp (l2s - f1 c l1s).
+  float f1, f2, s1, s2, cc, D;
+  vec4 l1, l2;
+  binaryScalars(x, p, pt, f1, l1, f2, l2, s1, s2, cc, D);
+  float wp = s2 - f1 * cc * s1;
+  dx = p - f1 * s1 * l1.xyz - (f2 / D) * wp * (l2.xyz - f1 * cc * l1.xyz);
+  // FD eps from the nearer hole's rest radius; the second hole enters only
+  // when massive, so the M2 = 0 limit matches the Kerr eps exactly.
+  float epsR = binaryRadius(x, uB1Pos, uB1A, uB1Boost);
+  if (uB2M > 0.0) epsR = min(epsR, binaryRadius(x, uB2Pos, uB2A, uB2Boost));
+  float eps = 2e-3 * max(epsR, 1.0);
 #else
   float f;
   vec3 l;
@@ -188,7 +267,12 @@ vec3 hash33(vec3 p) {
 // ============================================================================
 // SECTION: DISK — thin equatorial disk on prograde circular geodesics
 // (PROJECT_PLAN §2.5; derivations.md §6–7)
+// Compiled OUT of the BINARY variant: merger mode has no disk (§10.7), and
+// the crossing-bisection block triples the rk4Step inline sites — with the
+// heavier binary Hamiltonian that explodes software-rasterizer pipeline
+// JIT time (observed: SwiftShader blocked > 180 s on the first draw).
 // ============================================================================
+#ifndef BINARY
 
 // Orbital angular velocity Omega = s/(r^{3/2} + s a) and time-dilation
 // factor u^t = (1 + s a r^{-3/2}) / sqrt(1 - 3/r + 2 s a r^{-3/2}), with
@@ -288,6 +372,8 @@ vec4 diskShade(vec3 xh, vec3 ph, float pt, float r, float a) {
   float alpha = (0.5 + 0.35 * noise) * smoothstep(uDiskOuter, 0.85 * uDiskOuter, r);
   return vec4(col, alpha);
 }
+
+#endif  // ifndef BINARY (disk section)
 
 // ============================================================================
 // SECTION: STARFIELD — procedural celestial sphere (PROJECT_PLAN §2.6)
@@ -398,6 +484,20 @@ void main() {
   // a fixed 1.02 r_+ would sit OUTSIDE r_ph = 1.077 and clip real physics.
   float rCapture = rH * (1.0 + 0.02 * sqrt(max(1.0 - a * a, 0.0))) + 1e-3;
 
+#ifdef BINARY
+  // Per-hole horizon/capture radii: the single-Kerr law scaled by each mass
+  // (chi = a/M). With M1 = 1, chi1 = uSpin these reproduce rH/rCapture above
+  // bit-for-bit — part of the M2 -> 0 parity anchor.
+  float chi1 = uB1A / max(uB1M, 1e-12);
+  float s1g = sqrt(max(1.0 - chi1 * chi1, 0.0));
+  float bRh1 = uB1M * (1.0 + s1g);
+  float bCap1 = bRh1 * (1.0 + 0.02 * s1g) + 1e-3;
+  float chi2 = uB2A / max(uB2M, 1e-12);
+  float s2g = sqrt(max(1.0 - chi2 * chi2, 0.0));
+  float bRh2 = uB2M * (1.0 + s2g);
+  float bCap2 = bRh2 * (1.0 + 0.02 * s2g) + 1e-3;
+#endif
+
 #ifdef WEAK_FIELD
   // Static spacetime: time orientation is irrelevant to imaging and angles
   // differ from proper ones only at O(Phi); coordinate-covector rays with
@@ -412,6 +512,18 @@ void main() {
   // the metric at the camera. q_t (the conserved p_t) now varies per pixel.
   vec3 nloc = normalize(vec3(ndc.x * aspect * uTanHalfFov, ndc.y * uTanHalfFov, 1.0));
   vec4 q4 = -uE0 + nloc.x * uE1 + nloc.y * uE2 + nloc.z * uE3;
+#ifdef BINARY
+  // Lower with the BINARY metric at the camera: q_mu = eta q + sum f_i (l_i.q) l_i.
+  float fc1, fc2;
+  vec4 lc1, lc2;
+  binaryTerm(uCamPos, uB1Pos, uB1M, uB1A, uB1Boost, fc1, lc1);
+  binaryTerm(uCamPos, uB2Pos, uB2M, uB2A, uB2Boost, fc2, lc2);
+  float lq1 = lc1.w * q4.w + dot(lc1.xyz, q4.xyz);
+  float lq2 = lc2.w * q4.w + dot(lc2.xyz, q4.xyz);
+  float pt = -q4.w + fc1 * lq1 * lc1.w + fc2 * lq2 * lc2.w;
+  vec3 x = uCamPos;
+  vec3 p = q4.xyz + fc1 * lq1 * lc1.xyz + fc2 * lq2 * lc2.xyz;
+#else
   float fCam;
   vec3 lCam;
   metricTerms(uCamPos, a, fCam, lCam);
@@ -419,6 +531,7 @@ void main() {
   float pt = -q4.w + fCam * lq;         // q_t = g_{t nu} q^nu
   vec3 x = uCamPos;
   vec3 p = q4.xyz + fCam * lq * lCam;   // q_i = g_{i nu} q^nu
+#endif
 #endif
 
   // Front-to-back transparent accumulation over disk crossings.
@@ -434,6 +547,18 @@ void main() {
     // "Capture" at the would-be Schwarzschild radius of each mass: a
     // regularization of the broken linear approximation, not a horizon.
     if (wfNearest(x) < 0.0) {
+      outcome = 1;
+      break;
+    }
+#elif defined(BINARY)
+    // r is the rest radius about hole 1 (equal to the Kerr r when M2 = 0,
+    // and a valid escape measure since both holes sit near the origin).
+    float r = binaryRadius(x, uB1Pos, uB1A, uB1Boost);
+    if (r < bCap1) {
+      outcome = 1;
+      break;
+    }
+    if (uB2M > 0.0 && binaryRadius(x, uB2Pos, uB2A, uB2Boost) < bCap2) {
       outcome = 1;
       break;
     }
@@ -462,6 +587,20 @@ void main() {
 #ifdef WEAK_FIELD
     vec3 v = p / (1.0 - 2.0 * wfPhi(x));
     float h = clamp(0.08 * max(wfNearest(x), 0.05) / max(length(v), 1e-6), 1e-4, 6.0);
+#elif defined(BINARY)
+    float f1s, f2s, ss1, ss2, ccs, Ds;
+    vec4 l1s, l2s;
+    binaryScalars(x, p, pt, f1s, l1s, f2s, l2s, ss1, ss2, ccs, Ds);
+    float wps = ss2 - f1s * ccs * ss1;
+    vec3 v = p - f1s * ss1 * l1s.xyz - (f2s / Ds) * wps * (l2s.xyz - f1s * ccs * l1s.xyz);
+    // Displacement-bounded step, guided by the NEARER hole's local scale
+    // (single-Kerr law when M2 = 0 — the second min only enters when massive).
+    float guide = min(r - 0.9 * bRh1, r);
+    if (uB2M > 0.0) {
+      float r2b = binaryRadius(x, uB2Pos, uB2A, uB2Boost);
+      guide = min(guide, min(r2b - 0.9 * bRh2, r2b));
+    }
+    float h = clamp(0.1 * guide / max(length(v), 1e-6), 1e-4, 4.0);
 #else
     float f;
     vec3 l;
@@ -474,6 +613,7 @@ void main() {
     rk4Step(x, p, h, pt, a);
     steps++;
 
+#ifndef BINARY
     // Disk plane crossing: sign change of (x . n) across the step. Bisect
     // the step 3 times (each halving re-integrates, so the hit point lies
     // on the true geodesic), then linearly interpolate the final sub-step.
@@ -509,6 +649,7 @@ void main() {
         accA += (1.0 - accA) * d.a;
       }
     }
+#endif  // ifndef BINARY (disk crossing)
   }
 
   // --- Debug views override normal shading ---
@@ -534,6 +675,14 @@ void main() {
 #ifdef WEAK_FIELD
     vec3 v = p / (1.0 - 2.0 * wfPhi(x));
     background = starfield(normalize(v), 1.0);  // |Phi| << 1: shift negligible
+#elif defined(BINARY)
+    float f1e, f2e, se1, se2, cce, De;
+    vec4 l1e, l2e;
+    binaryScalars(x, p, pt, f1e, l1e, f2e, l2e, se1, se2, cce, De);
+    float wpe = se2 - f1e * cce * se1;
+    vec3 v = p - f1e * se1 * l1e.xyz - (f2e / De) * wpe * (l2e.xyz - f1e * cce * l1e.xyz);
+    float gstar = (uSkyShift == 1) ? 1.0 / max(pt, 1e-3) : 1.0;
+    background = starfield(normalize(v), gstar);
 #else
     float f;
     vec3 l;

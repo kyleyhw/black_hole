@@ -3,7 +3,8 @@ import { OrbitCamera } from "./camera";
 import { riscoOf } from "./physics";
 import { buildPanel, type PanelParams } from "./panel";
 import {
-  buildTetrad, staticObserver, movingObserver, metricTerms as metricTermsPublic, type Vec4,
+  buildTetrad, buildTetradBinary, staticObserver, staticObserverBinary, movingObserver,
+  metricTerms as metricTermsPublic, type BinaryHole, type Vec4,
 } from "./tetrad";
 import { FreeFall } from "./geodesic";
 import { createHqSession, webGpuSupported, type HqSession } from "./webgpu";
@@ -38,6 +39,13 @@ const params: PanelParams = {
   diskSense: 1,
   diskIncl: 0,
   mode: "kerr",
+  // Binary merger preview (Phase 14, static): mass ratio q = M2/M1 with
+  // M1 = 1 (all lengths in units of M1), barycentric separation in M,
+  // aligned dimensionless spins per hole.
+  binarySep: 16,
+  binaryQ: 1,
+  binaryChi1: 0.7,
+  binaryChi2: -0.3,
   masses: [
     { m: 1.0, pos: [0, -8, 0] },
     { m: 0.5, pos: [0, 8, 2] },
@@ -55,6 +63,8 @@ if (!gl.getExtension("EXT_color_buffer_float")) {
 const sceneProg = createProgram(gl, vertSrc, sceneSrc);
 // Weak-field multi-mass variant: same source, compile-time metric swap.
 const weakProg = createProgram(gl, vertSrc, sceneSrc, ["WEAK_FIELD"]);
+// Binary merger variant (superposed boosted Kerr-Schild, derivations.md sec. 11).
+const binaryProg = createProgram(gl, vertSrc, sceneSrc, ["BINARY"]);
 const blurProg = createProgram(gl, vertSrc, blurSrc);
 const compositeProg = createProgram(gl, vertSrc, compositeSrc);
 
@@ -69,6 +79,12 @@ const uWeak = uniforms(gl, weakProg, [
   "uResolution", "uCamPos", "uCamRight", "uCamUp", "uCamForward", "uTanHalfFov",
   "uMaxSteps", "uDebugView", "uDiskOn",
   "uNMasses", "uMassPos", "uMassM",
+]);
+const uBinary = uniforms(gl, binaryProg, [
+  "uResolution", "uCamPos", "uCamRight", "uCamUp", "uCamForward", "uTanHalfFov",
+  "uSpin", "uMaxSteps", "uDebugView", "uDiskOn",
+  "uE0", "uE1", "uE2", "uE3", "uSkyShift",
+  "uB1Pos", "uB1M", "uB1A", "uB1Boost", "uB2Pos", "uB2M", "uB2A", "uB2Boost",
 ]);
 const uBlur = uniforms(gl, blurProg, ["uTex", "uTexelSize", "uDir", "uThreshold"]);
 const uComp = uniforms(gl, compositeProg, [
@@ -243,6 +259,46 @@ let camTrail: { t: number; p: [number, number, number] }[] = [];
 let camVelEma: [number, number, number] = [0, 0, 0];
 let lastCamSpeed = 0; // |mapped velocity| last frame (units of c), exposed for tests
 
+// Static-preview hole placement: barycentric on the y axis, M1 = 1 so all
+// lengths are in units of the primary's mass; spins +z-aligned (a = chi * M).
+function binaryHoles(): [BinaryHole, BinaryHole] {
+  const m2 = params.binaryQ;
+  const mt = 1 + m2;
+  const sep = params.binarySep;
+  return [
+    {
+      mass: 1,
+      a: params.binaryChi1,
+      center: [0, (-m2 / mt) * sep, 0],
+      velocity: [0, 0, 0],
+    },
+    {
+      mass: m2,
+      a: params.binaryChi2 * m2,
+      center: [0, (1 / mt) * sep, 0],
+      velocity: [0, 0, 0],
+    },
+  ];
+}
+
+// Column-major lab->rest Lorentz boost acting on (t,x,y,z) columns, for the
+// shader's mat4 uniforms; identity when at rest (exact static parity). The
+// symmetric boost matrix equals its own column-major flattening.
+function lorentzBoostColMajor(v: readonly [number, number, number]): Float32Array {
+  const v2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+  const m = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  if (v2 < 1e-24) return m;
+  const gamma = 1 / Math.sqrt(1 - v2);
+  for (let i = 0; i < 3; i++) {
+    m[0 * 4 + (i + 1)] = -gamma * v[i]!; // column t, rows x..z
+    m[(i + 1) * 4 + 0] = -gamma * v[i]!; // columns x..z, row t
+    for (let j = 0; j < 3; j++)
+      m[(i + 1) * 4 + (j + 1)] = (i === j ? 1 : 0) + ((gamma - 1) * v[i]! * v[j]!) / v2;
+  }
+  m[0] = gamma;
+  return m;
+}
+
 let lastT = performance.now();
 let fpsEma = 0;
 const fpsNode = document.getElementById("fps") as HTMLDivElement;
@@ -334,7 +390,17 @@ function frame(now: number): void {
     lastCamSpeed = Math.hypot(vUsed[0], vUsed[1], vUsed[2]);
     u4 = movingObserver(b.pos, vUsed, params.spin);
   }
-  const tetrad = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
+  // Binary mode builds its tetrad under the superposed metric with a static
+  // observer (the moving-observer camera uses the single-Kerr metric and is
+  // deferred to the merger-mode dynamics phase; labeled in docs).
+  const tetrad = params.mode === "binary"
+    ? buildTetradBinary(
+        b.pos,
+        staticObserverBinary(b.pos, binaryHoles()),
+        b.right, b.up, b.forward,
+        binaryHoles(),
+      )
+    : buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
   // Shader packing: vec4 = (xyz spatial, w = t).
   const packLeg = (e: Vec4): [number, number, number, number] => [e[1], e[2], e[3], e[0]];
   const setCam = (u: Map<string, WebGLUniformLocation | null>): void => {
@@ -367,6 +433,30 @@ function frame(now: number): void {
     }
     gl.uniform3fv(uWeak.get("uMassPos") ?? null, pos);
     gl.uniform1fv(uWeak.get("uMassM") ?? null, ms);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  } else if (params.mode === "binary") {
+    gl.useProgram(binaryProg);
+    setCam(uBinary);
+    gl.uniform2f(uBinary.get("uResolution") ?? null, scene.w, scene.h);
+    // uSpin only feeds the shared debug-view radius reference in this mode.
+    gl.uniform1f(uBinary.get("uSpin") ?? null, params.binaryChi1);
+    gl.uniform1i(uBinary.get("uMaxSteps") ?? null, params.maxSteps);
+    gl.uniform1i(uBinary.get("uDebugView") ?? null, params.debugView);
+    gl.uniform1i(uBinary.get("uDiskOn") ?? null, 0); // no disk during merger (sec. 10.7)
+    gl.uniform4f(uBinary.get("uE0") ?? null, ...packLeg(tetrad[0]));
+    gl.uniform4f(uBinary.get("uE1") ?? null, ...packLeg(tetrad[1]));
+    gl.uniform4f(uBinary.get("uE2") ?? null, ...packLeg(tetrad[2]));
+    gl.uniform4f(uBinary.get("uE3") ?? null, ...packLeg(tetrad[3]));
+    gl.uniform1i(uBinary.get("uSkyShift") ?? null, params.skyShift ? 1 : 0);
+    const [bh1, bh2] = binaryHoles();
+    gl.uniform3f(uBinary.get("uB1Pos") ?? null, ...bh1.center);
+    gl.uniform1f(uBinary.get("uB1M") ?? null, bh1.mass);
+    gl.uniform1f(uBinary.get("uB1A") ?? null, bh1.a);
+    gl.uniformMatrix4fv(uBinary.get("uB1Boost") ?? null, false, lorentzBoostColMajor(bh1.velocity));
+    gl.uniform3f(uBinary.get("uB2Pos") ?? null, ...bh2.center);
+    gl.uniform1f(uBinary.get("uB2M") ?? null, bh2.mass);
+    gl.uniform1f(uBinary.get("uB2A") ?? null, bh2.a);
+    gl.uniformMatrix4fv(uBinary.get("uB2Boost") ?? null, false, lorentzBoostColMajor(bh2.velocity));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   } else {
   gl.useProgram(sceneProg);
@@ -437,9 +527,12 @@ function frame(now: number): void {
   gl.uniform1i(uComp.get("uBloom") ?? null, 1);
   gl.uniform2f(uComp.get("uResolution") ?? null, canvas.width, canvas.height);
   gl.uniform1f(uComp.get("uBloomStrength") ?? null, params.bloomStrength);
-  gl.uniform1i(uComp.get("uErgoOn") ?? null, params.ergoOn ? 1 : 0);
-  gl.uniform1i(uComp.get("uPhotonOn") ?? null, params.photonOn ? 1 : 0);
-  gl.uniform1i(uComp.get("uGridOn") ?? null, params.gridOn ? 1 : 0);
+  // The single-Kerr overlays (ergosphere, photon rings, grid) are undefined
+  // for the superposed binary metric; suppress them in binary mode.
+  const noOverlays = params.mode === "binary";
+  gl.uniform1i(uComp.get("uErgoOn") ?? null, params.ergoOn && !noOverlays ? 1 : 0);
+  gl.uniform1i(uComp.get("uPhotonOn") ?? null, params.photonOn && !noOverlays ? 1 : 0);
+  gl.uniform1i(uComp.get("uGridOn") ?? null, params.gridOn && !noOverlays ? 1 : 0);
   gl.uniform1f(uComp.get("uSpin") ?? null, params.spin);
   gl.uniform1i(uComp.get("uDebugView") ?? null, params.debugView);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -469,6 +562,8 @@ function screenshot(): void {
 }
 
 function toggleFreefall(): void {
+  // The free-fall integrator is single-Kerr; not meaningful in binary mode.
+  if (params.mode === "binary") return;
   if (freefall.active) {
     // Stop mid-fall: keep the current position (the frame loop has synced
     // the orbit camera to it) unless we are already deep enough that a
@@ -530,8 +625,8 @@ async function hqParity(w: number, h: number, samples: number): Promise<number[]
 }
 
 async function openHqStill(): Promise<void> {
-  if (params.mode === "multi") {
-    alert("HQ stills render the Kerr scene; switch out of multi-mass mode.");
+  if (params.mode !== "kerr") {
+    alert("HQ stills render the single-Kerr scene; switch out of multi-mass/binary mode.");
     return;
   }
   const overlay = document.createElement("div");

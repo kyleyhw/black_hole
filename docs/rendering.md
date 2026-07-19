@@ -98,6 +98,41 @@ composite pass in **flat space**, deliberately: they are coordinate-surface
 markers, i.e. diagnostics, not physical objects — lensing them would
 misrepresent what they are. The About modal says so.
 
+## Binary merger preview (Phase 14)
+
+The `#define BINARY` shader variant renders **two** black holes with the
+superposed boosted Kerr–Schild metric and its closed-form Sherman–Morrison
+inverse (derivations.md §11). Design points:
+
+- **Scalar form in the shader.** The inverse is never materialized as a
+  matrix: H and dx/dλ use the expanded scalars (s₁, s₂, c, D), validated
+  against the matrix inverse to machine precision in the Python mirror
+  (suite study 8). The D floor (1e-4) only engages in the two-horizon
+  overlap, which is always inside the capture region.
+- **Bit-exact single-hole limit.** Every BINARY branch is engineered so
+  f₂ = 0 reduces to the single-Kerr arithmetic bit-for-bit (guarded step
+  and FD-eps terms, exact +0.0 additions); the e2e suite asserts pixel
+  identity of binary-with-M₂=0 against Kerr mode.
+- **Termination** is per-hole: rest-frame KS radius against each hole's own
+  capture law (the single-Kerr buffer scaled by that hole's mass and spin),
+  plus the shared |p|² blueshift guard.
+- **Camera** is a static observer of the superposed metric with a tetrad
+  built by the same Gram–Schmidt core under the binary g; the
+  moving-observer drag camera is single-Kerr machinery and renders static
+  in this mode (labeled; revisited with the dynamics phase).
+- **No disk, no single-Kerr overlays** in binary mode (the ISCO/ergosphere
+  concepts they mark are per-hole quantities that don't survive
+  superposition); the starfield and its per-pixel g★ shift work unchanged.
+- The boost enters as **per-hole lab→rest mat4 uniforms** computed
+  CPU-side each frame, not as in-shader branch code: the branchy boost,
+  inlined ~56× through the RK4/FD call tree, blew up software-rasterizer
+  pipeline JIT (first draw blocked > 180 s on SwiftShader); the branchless
+  matrix multiply compiles in 0.2 s, and the identity matrix keeps the
+  static path bit-exact. Formula validated in the mirror (Lᵀ g L identity);
+  dormant (identity) in this static preview, driven by the PN dynamics in
+  Phase 15. For the same JIT reason the disk section is compiled out of the
+  BINARY variant entirely.
+
 ## Camera model
 
 Since Phase 8 the camera is a proper **tetrad camera**: rays are
