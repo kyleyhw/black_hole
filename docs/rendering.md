@@ -111,7 +111,9 @@ finite-differenced coordinate motion (derivations.md §8). So dragging the
 view is a genuine observer worldline — it exhibits aberration and Doppler
 while moving and reduces to the static observer exactly at rest. Because a
 free interactive drag is superluminal in coordinate units, the velocity is
-clamped to the local light cone (max Lorentz factor 10). The starfield is
+computed only while actively dragging, EMA-smoothed to avoid a strobe, and
+passed through a sub-luminal saturating map (V_max = 0.5c) so the aberration
+is bounded and graded rather than clamped (derivations.md §8). The starfield is
 red/blueshifted per pixel by g\* = 1/q_t (toggleable). The earlier
 coordinate-covector camera and its distinct angle convention are derived
 and quantified in derivations.md §4.

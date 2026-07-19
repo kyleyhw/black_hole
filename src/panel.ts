@@ -299,8 +299,9 @@ const LEARN = {
       built in the camera's own orthonormal frame (a tetrad), so angles,
       aberration, and the sky's red/blueshift are exactly what that observer
       would measure. A free drag is superluminal in coordinate units, so the
-      camera's speed is capped at the local light cone — you cannot orbit
-      faster than light.
+      drag speed is mapped to a bounded sub-luminal velocity (smoothly, only
+      while you are dragging) — you get graded aberration and Doppler rather
+      than a light-speed lurch, and the view is exactly static at rest.
       <b>Release</b> drops the camera onto a timelike geodesic: it falls
       freely, and at a &gt; 0 frame dragging visibly swings it azimuthally
       even though it started at rest. Stop the fall any time, or let it

@@ -424,13 +424,25 @@ $v = 0$ gives $B = 1 - f$ and recovers the static observer exactly, so a
 camera at rest renders identically. The tetrad's Gram–Schmidt against
 $e_{(0)} = u$ then tilts the spatial legs, producing **aberration and
 Doppler** ($g_\star = 1/q_t$ shifts with the direction of motion) with no
-extra machinery. Timelike-ness requires $B > 0$; since the interactive drag
-is superluminal in coordinate units under the 1-second $\approx$ 1-$M$ time
-mapping, $v$ is scaled to the largest factor keeping $B \ge B_{\min}$
-(a light-cone clamp capping $u^t$, i.e. the local speed, just below $c$).
-This is a *stationary/accelerated* observer, not a geodesic — a real
-observer with an engine — which is exactly what an arbitrarily-steered
-camera is.
+extra machinery. This is a *stationary/accelerated* observer, not a geodesic
+— a real observer with an engine — which is exactly what an arbitrarily-
+steered camera is.
+
+**Mapping a drag to a velocity (rendering layer).** Timelike-ness requires
+$B > 0$, but a hand-drag is wildly superluminal in coordinate units: under
+the ~1-second-$\approx$-1-$M$ mapping a camera at $r = 18M$ swept even
+gently moves at *many* $c$. Feeding that raw finite-difference velocity to
+$u$ would peg every motion frame at the light cone (maximal aberration) and,
+because pointer input does not land on every frame, strobe on and off. So
+the interactive velocity is treated as a UI quantity: it is computed **only
+while actively dragging** (idle / programmatic moves stay static), EMA-
+smoothed across frames to remove the strobe, and its magnitude is passed
+through a **sub-luminal saturating map** $|v| \mapsto V_{\max}\tanh(|v|/V_{\rm
+ref})$ (with $V_{\max} = 0.5$, so aberration is bounded and graded rather
+than clamped). The $B \ge B_{\min}$ floor inside `movingObserver` then only
+ever acts as a numerical backstop. The choice of $V_{\max}$ is a feel
+parameter, not physics — the observer is a genuine timelike worldline at
+whatever speed the map assigns.
 
 **Free fall.** Release from rest means initial $u^i = 0$,
 $u^t = 1/\sqrt{-g_{tt}}$ — again requiring an exterior starting point; the

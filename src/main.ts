@@ -214,11 +214,13 @@ for (const ev of ["pointerdown", "pointerup", "wheel", "touchstart", "touchend",
 // tetrad's e0. A large one-frame jump is a teleport (preset/reset), not motion;
 // a camera at rest snaps to exactly static (movingObserver with v=0 ≡ static),
 // which keeps a still frame pixel-identical to the previous static behaviour.
-const CAM_VEL_SMOOTH = 0.3; // EMA weight on the new finite-difference velocity
-const CAM_TELEPORT_M = 3.0; // |Δx| beyond this in one frame is a jump, not motion
-const CAM_REST_EPS = 1e-4; // |Δx| below this is "at rest" → snap velocity to zero
+const CAM_VEL_SMOOTH = 0.25; // EMA weight on the per-frame finite-difference velocity
+const CAM_VEL_MAX = 0.5; // ceiling on the mapped coordinate speed (units of c)
+const CAM_VEL_REF = 1.0; // low-speed slope of the drag→speed saturating map (M/coord-s)
+const CAM_VEL_DEADZONE = 0.01; // mapped speed below this → treat as exactly static
 let prevCamPos: [number, number, number] | null = null;
-let camVel: [number, number, number] = [0, 0, 0];
+let camVel: [number, number, number] = [0, 0, 0]; // EMA-smoothed coordinate velocity
+let lastCamSpeed = 0; // |mapped velocity| last frame (units of c), exposed for tests
 
 let lastT = performance.now();
 let fpsEma = 0;
@@ -260,27 +262,37 @@ function frame(now: number): void {
   let u4: Vec4;
   if (freefall.active) {
     u4 = freefall.fourVelocity();
-    prevCamPos = null; // so the frame after release is not read as a jump
+    prevCamPos = null;
     camVel = [0, 0, 0];
+    lastCamSpeed = 0;
   } else {
-    if (prevCamPos && dt > 1e-4) {
-      const dxx = b.pos[0] - prevCamPos[0];
-      const dxy = b.pos[1] - prevCamPos[1];
-      const dxz = b.pos[2] - prevCamPos[2];
-      const jump = Math.hypot(dxx, dxy, dxz);
-      if (jump < CAM_REST_EPS || jump > CAM_TELEPORT_M) {
-        camVel = [0, 0, 0]; // at rest, or a preset/reset teleport — not motion
-      } else {
-        const k = CAM_VEL_SMOOTH;
-        camVel = [
-          camVel[0] + k * (dxx / dt - camVel[0]),
-          camVel[1] + k * (dxy / dt - camVel[1]),
-          camVel[2] + k * (dxz / dt - camVel[2]),
-        ];
-      }
+    // Physical moving observer, but only while the user is actively dragging or
+    // pinching; idle, auto-orbit, and programmatic camera moves are a static
+    // observer (v = 0 ≡ static, so a resting frame stays pixel-identical). Two
+    // corrections make the drag usable: EMA smoothing removes the strobe from
+    // pointer input that does not land on every frame, and the (superluminal)
+    // smoothed coordinate speed is mapped through a sub-luminal saturating
+    // curve v = v̂·V_MAX·tanh(|v|/V_REF) — bounded, graded aberration/Doppler
+    // instead of the light-cone-clamped lurch a raw finite difference produces.
+    if (camera.isManipulating && prevCamPos && dt > 1e-4) {
+      const k = CAM_VEL_SMOOTH;
+      camVel = [
+        camVel[0] + k * ((b.pos[0] - prevCamPos[0]) / dt - camVel[0]),
+        camVel[1] + k * ((b.pos[1] - prevCamPos[1]) / dt - camVel[1]),
+        camVel[2] + k * ((b.pos[2] - prevCamPos[2]) / dt - camVel[2]),
+      ];
+    } else {
+      camVel = [0, 0, 0];
     }
     prevCamPos = [b.pos[0], b.pos[1], b.pos[2]];
-    u4 = movingObserver(b.pos, camVel, params.spin);
+    const speed = Math.hypot(camVel[0], camVel[1], camVel[2]);
+    let vUsed: [number, number, number] = [0, 0, 0];
+    if (speed > CAM_VEL_DEADZONE) {
+      const scale = (CAM_VEL_MAX * Math.tanh(speed / CAM_VEL_REF)) / speed;
+      vUsed = [camVel[0] * scale, camVel[1] * scale, camVel[2] * scale];
+    }
+    lastCamSpeed = Math.hypot(vUsed[0], vUsed[1], vUsed[2]);
+    u4 = movingObserver(b.pos, vUsed, params.spin);
   }
   const tetrad = buildTetrad(b.pos, u4, b.right, b.up, b.forward, params.spin);
   // Shader packing: vec4 = (xyz spatial, w = t).
@@ -598,6 +610,9 @@ declare global {
       /** Diagnostic: central-pixel q_t for a moving observer, Cartesian
        *  velocity v (coordinate units). v = [0,0,0] must equal centerQt(). */
       centerQtMoving: (v: [number, number, number]) => number;
+      /** Diagnostic: |mapped camera velocity| used last frame (units of c);
+       *  0 when static, bounded well below 1 while dragging. */
+      camSpeed: () => number;
     };
   }
 }
@@ -628,4 +643,5 @@ window.__bh = {
     const lq = q[0] + m.l[0] * q[1] + m.l[1] * q[2] + m.l[2] * q[3];
     return -q[0] + m.f * lq;
   },
+  camSpeed: (): number => lastCamSpeed,
 };

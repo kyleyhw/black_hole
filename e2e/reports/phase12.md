@@ -58,6 +58,7 @@ About modal points to it and defines a and M inline.
 | Learn modal opens, defines a/φ/g, closes | yes | ✓ |
 | Sidebar collapse + reopen | yes | ✓ |
 | Idle auto-orbit drifts, freezes when off | drift 0.2 rad, then frozen | ✓ |
+| Physical camera: drag stays bounded sub-luminal, no strobe, static at rest | max 0.481 c | ✓ |
 
 Artifact: `screenshots/phase12-grid.png` (grid + shadow), and
 `docs/img/grid-overlay.png` for the docs.
@@ -93,6 +94,26 @@ Artifact: `screenshots/phase12-grid.png` (grid + shadow), and
   new product default is 1.00×, which a software-WebGL2 frame cannot sustain
   under Playwright's actionability polling; `__bhTest` falls back to 0.75 so
   the pixel thresholds in phase 5/9 (which pin nothing) stay valid.
+
+## Camera-drag regression (a real bug this check now catches)
+
+The first cut of the moving-observer camera was verified only at the *physics*
+level (`centerQtMoving` with a synthetic velocity) and shipped broken: the raw
+per-frame finite-difference velocity of a hand-drag is superluminal in
+coordinate units (measured ~1.6 c on motion frames), so it clamped to 0.995 c —
+maximal aberration — and, because pointer events do not land on every frame,
+it **strobed** on and off (`0 0 0 1.5 0 0 0 1.5`). The camera lurched and
+flickered on every drag.
+
+The fix maps the drag to a usable physical velocity: compute it **only while
+actively dragging** (`camera.isManipulating`), EMA-smooth it (kills the
+strobe), and pass its magnitude through a sub-luminal saturating curve
+`V_max·tanh(|v|/V_ref)`, `V_max = 0.5 c` (bounds and grades the aberration). A
+still camera stays exactly static, so pixel-comparison suites are unaffected.
+Check 5b drives a **real Playwright pointer drag** and asserts, via the new
+`__bh.camSpeed()` diagnostic, that the mapped speed is 0 at rest, bounded
+(< 0.9 c) and non-strobing during the drag, and 0 again after release —
+exercising the actual interactive path the physics-only test missed.
 
 ## Note on the mass question specifically
 

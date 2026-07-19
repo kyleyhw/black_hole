@@ -108,6 +108,45 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
       () => !document.getElementById("panel").classList.contains("hidden"),
     );
 
+    // --- 5b. Physical camera: a real drag stays bounded sub-luminal ---
+    // Regression for the moving-observer camera: a live pointer drag must
+    // produce a smooth, sub-luminal mapped velocity (bounded aberration), be
+    // exactly static when not dragging, and NOT strobe. Before the fix the raw
+    // finite-difference velocity was superluminal (clamped to 0.995c) and
+    // flickered on/off between frames — this asserts neither happens.
+    await page.evaluate(() => {
+      const c = window.__bh.camera;
+      c.azimuth = 0;
+      c.elevation = 0.12;
+      c.radius = 18;
+    });
+    // The panel overlays the drag point at this width; hide the chrome so the
+    // pointer reaches the canvas and the camera actually receives the drag.
+    const dragHide = await page.addStyleTag({
+      content: "#panel,#fps,#footer,#panelToggle{display:none !important}",
+    });
+    await settleFrames(page, 4);
+    const dragRestSpeed = await page.evaluate(() => window.__bh.camSpeed());
+    await page.mouse.move(160, 120);
+    await page.mouse.down();
+    const dragSpeeds = [];
+    for (let i = 1; i <= 10; i++) {
+      await page.mouse.move(160 + i * 12, 120);
+      await settleFrames(page, 1);
+      dragSpeeds.push(await page.evaluate(() => window.__bh.camSpeed()));
+    }
+    await page.mouse.up();
+    await settleFrames(page, 6);
+    const dragAfterSpeed = await page.evaluate(() => window.__bh.camSpeed());
+    await dragHide.evaluate((s) => s.remove());
+    const dragMax = Math.max(...dragSpeeds);
+    const dragMoved = dragSpeeds.some((s) => s > 0.02); // aberration was actually active
+    // No frame-to-frame strobe: consecutive mapped speeds stay close once moving.
+    const movingSamples = dragSpeeds.filter((s) => s > 0.02);
+    const noStrobe = movingSamples.every((s, i) => i === 0 || Math.abs(s - movingSamples[i - 1]) < 0.25);
+    const cameraDragOk =
+      dragRestSpeed === 0 && dragMax < 0.9 && dragMoved && noStrobe && dragAfterSpeed === 0;
+
     // --- 6. Cinematic idle auto-orbit ---
     // Lift the test freeze; the page loaded > 4 s ago and the last click was
     // the collapse toggle, so after IDLE_ORBIT_DELAY (4 s) of stillness the
@@ -147,6 +186,10 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
       learn_defines_symbols: defines,
       learn_ok: learn.open && learn.text.length > 100 && defines && learnClosed,
       collapse_ok: hidden && shown,
+      camera_drag_rest_speed: dragRestSpeed,
+      camera_drag_max_speed: dragMax,
+      camera_drag_after_speed: dragAfterSpeed,
+      camera_drag_ok: cameraDragOk,
       autoorbit_drift_rad: drift,
       autoorbit_froze: froze,
       autoorbit_ok: drift > 0.005 && drift < 1.5 && froze,
@@ -155,7 +198,8 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
     console.log(JSON.stringify(results, null, 2));
     if (
       !results.mass_invariance_ok || !results.grid_ok || !results.freefall_stop_ok ||
-      !results.learn_ok || !results.collapse_ok || !results.autoorbit_ok
+      !results.learn_ok || !results.collapse_ok || !results.autoorbit_ok ||
+      !results.camera_drag_ok
     )
       process.exitCode = 1;
   } catch (err) {
