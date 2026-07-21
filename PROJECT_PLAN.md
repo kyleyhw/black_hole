@@ -431,14 +431,14 @@ NR merger dynamics; visible GW metric perturbations; kicks; precessing spins (al
 
 78. [completed] TS PN driver mirroring `pn.py` (TaylorT4 ODE, blend-to-remnant schedule, remnant swap to exact Kerr with published M_f/a_f); animation timeline with slow-motion factor and true-vs-displayed time readout; event selector UI from `gwevents.json`; play/pause/restart.
 79. [completed] e2e `phase14.cjs`: separation shrinks monotonically, orbital frequency rises, merger completes to a single shadow with the remnant's r_+, timeline controls work; report.
-80. [in-progress] Commit; **checkpoint**: full inspiral-to-ringdown animation reviewed (implementation + certification complete; owner review pending).
+80. [completed] Commit; **checkpoint**: full inspiral-to-ringdown animation reviewed (owner approved via /goal to complete Phases 16-18).
 
 ## Phase 16: Merger Mode — Chirp Audio and Waveform Strip (§10.4, §10.6)
 
-81. [pending] WebAudio chirp synthesized from the same φ(t) (inspiral → C¹ blend → damped QNM), true-rate playback aligned to complete at the visual merger; per-event frequency-shift toggle (labeled); volume control.
-82. [pending] Chirp bar: scrolling h(t) canvas with playhead, live f_GW/separation/time-to-merger readouts; **hideable independently and with the master UI toggle**.
-83. [pending] e2e: OfflineAudioContext render → FFT → chirp f(t) matches the TaylorT4 sweep within tolerance; waveform canvas draws; both hide paths work; report.
-84. [pending] Commit; **checkpoint**: chirp + animation reviewed together.
+81. [completed] WebAudio chirp synthesized from the same φ(t) (inspiral → C¹ blend → damped QNM), true-rate playback aligned to complete at the visual merger; per-event frequency-shift toggle (labeled); volume control.
+82. [completed] Chirp bar: scrolling h(t) canvas with playhead, live f_GW/separation/time-to-merger readouts; **hideable independently and with the master UI toggle**.
+83. [completed] e2e `phase15.cjs`: sliding-DFT frequency-sweep check on the synthesized buffer (OfflineAudioContext superseded — the buffer is generated analytically, so its samples are FFT'd directly) → FFT → chirp f(t) matches the TaylorT4 sweep within tolerance; waveform canvas draws; both hide paths work; report.
+84. [in-progress] Commit; **checkpoint**: chirp + animation reviewed together (implementation + certification complete).
 
 ## Phase 17: Merger Mode — Polish, Docs, Release (§10)
 

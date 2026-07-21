@@ -271,11 +271,70 @@ const merger = {
   slowmo: 25, // visuals run 1/slowmo of physical rate (sec. 10.6: aliasing)
 };
 
+// --- Chirp audio (Phase 16): true-rate h(t) played once near the visual
+// merger, phase-locked to the same PN evolution driving the picture. WebAudio
+// is created lazily on the first user gesture (Play) to satisfy autoplay
+// policy. The buffer is (re)synthesized per event / pitch-shift choice.
+const audio = {
+  ctx: null as AudioContext | null,
+  gain: null as GainNode | null,
+  buffer: null as AudioBuffer | null, // current event's true-rate h(t)
+  samples: null as Float32Array | null, // same data, for the waveform canvas
+  rate: 44100,
+  shiftOn: true, // apply the event's audibility octave shift
+  volume: 0.6,
+  source: null as AudioBufferSourceNode | null,
+  scheduled: false, // the chirp has been fired for this playthrough
+};
+
+function ensureAudioCtx(): void {
+  if (audio.ctx) return;
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) return; // no WebAudio: animation and waveform still work, silently
+  audio.ctx = new Ctor();
+  audio.rate = audio.ctx.sampleRate;
+  audio.gain = audio.ctx.createGain();
+  audio.gain.gain.value = audio.volume;
+  audio.gain.connect(audio.ctx.destination);
+}
+
+function rebuildAudioBuffer(): void {
+  if (!merger.driver) {
+    audio.buffer = null;
+    audio.samples = null;
+    return;
+  }
+  const shiftOct = audio.shiftOn ? merger.driver.event.audioShiftOct : 0;
+  audio.samples = merger.driver.synthesizeAudio(audio.rate, shiftOct);
+  if (audio.ctx) {
+    const buf = audio.ctx.createBuffer(1, audio.samples.length, audio.rate);
+    buf.getChannelData(0).set(audio.samples);
+    audio.buffer = buf;
+  }
+}
+
+function stopChirp(): void {
+  if (audio.source) {
+    try {
+      audio.source.stop();
+    } catch {
+      /* already stopped */
+    }
+    audio.source = null;
+  }
+  audio.scheduled = false;
+}
+
 function mergerSelect(name: string | null): void {
+  stopChirp();
   if (!name) {
     merger.driver = null;
     merger.playing = false;
     merger.tGeom = 0;
+    audio.buffer = null;
+    audio.samples = null;
     return;
   }
   const ev = GW_EVENTS.find((e) => e.name === name);
@@ -284,6 +343,8 @@ function mergerSelect(name: string | null): void {
   merger.tGeom = 0;
   merger.playing = false;
   params.mode = "binary";
+  chirpHiddenSelf = false; // re-selecting an event brings the bar back
+  rebuildAudioBuffer();
 }
 
 // Static-preview hole placement: barycentric on the y axis, M1 = 1 so all
@@ -343,6 +404,26 @@ function frame(now: number): void {
   // -> geometric time (divide by M_total in seconds).
   if (merger.driver && merger.playing) {
     merger.tGeom += dt / merger.slowmo / merger.driver.mTotalSec;
+    const d = merger.driver;
+    const tPhys = merger.tGeom * d.mTotalSec;
+    // Fire the true-rate chirp once, timed so its merger instant coincides
+    // with the visual merger: wall time until merger is (toMergerS - tPhys)
+    // x slowmo; when that drops to within toMergerS wall-seconds, start the
+    // buffer at the matching offset so it plays out at true rate.
+    if (!audio.scheduled && audio.buffer && audio.ctx && audio.gain) {
+      const wallToMerger = (d.toMergerS - tPhys) * merger.slowmo;
+      if (wallToMerger > 0 && wallToMerger <= d.toMergerS) {
+        const offset = d.toMergerS - wallToMerger; // ~0 at first crossing
+        const src = audio.ctx.createBufferSource();
+        src.buffer = audio.buffer;
+        src.connect(audio.gain);
+        src.start(0, Math.max(0, offset));
+        audio.source = src;
+        audio.scheduled = true;
+      }
+    }
+    // End the animation when the ringdown tail has elapsed.
+    if (tPhys > d.audioDurationS) merger.playing = false;
   }
   // Free-fall mode: the camera worldline is a timelike geodesic integrated
   // on the CPU; the orbit camera's angles track the falling position so the
@@ -573,19 +654,24 @@ function frame(now: number): void {
   gl.uniform1i(uComp.get("uDebugView") ?? null, params.debugView);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-  // --- Merger readout (physical time to merger, separation, f_GW) ---
-  if (merger.driver && fpsFrames % 6 === 0) {
+  // --- Merger readouts + chirp bar (physical time, separation, f_GW) ---
+  if (merger.driver && fpsFrames % 3 === 0) {
+    const d = merger.driver;
+    const st = d.state(merger.tGeom);
+    const tms = st.tToMergerS * 1e3;
+    const line1 =
+      `t − t<sub>merger</sub> = ${tms >= 0 ? "−" : "+"}${Math.abs(tms).toFixed(1)} ms` +
+      ` <span class="note">(×${merger.slowmo} slow-mo)</span>`;
+    const line2 =
+      st.phase === "ringdown"
+        ? `ringdown: f<sub>QNM</sub> = ${st.fGwHz.toFixed(0)} Hz`
+        : `${st.phase}: sep = ${st.separation.toFixed(2)} M · f<sub>GW</sub> = ${st.fGwHz.toFixed(1)} Hz`;
     const node = document.getElementById("mergerReadout");
-    if (node) {
-      const st = merger.driver.state(merger.tGeom);
-      const tms = st.tToMergerS * 1e3;
-      node.innerHTML =
-        `t − t<sub>merger</sub> = ${tms >= 0 ? "−" : "+"}${Math.abs(tms).toFixed(1)} ms` +
-        ` <span class="note">(×${merger.slowmo} slow-mo)</span><br>` +
-        (st.phase === "ringdown"
-          ? `ringdown: f<sub>QNM</sub> = ${st.fGwHz.toFixed(0)} Hz`
-          : `${st.phase}: sep = ${st.separation.toFixed(2)} M · f<sub>GW</sub> = ${st.fGwHz.toFixed(1)} Hz`);
-    }
+    if (node) node.innerHTML = `${line1}<br>${line2}`;
+    const info = document.getElementById("chirpInfo");
+    if (info) info.innerHTML = `${d.event.name}<br>${line2}`;
+    drawChirp(merger.tGeom * d.mTotalSec / d.audioDurationS);
+    updateChirpBarVisibility();
   }
 
   // --- FPS (EMA), updated a few times a second ---
@@ -777,6 +863,73 @@ about.addEventListener("click", (e) => {
   if (e.target === about) about.classList.remove("open");
 });
 
+// --- Chirp bar: waveform, visibility, controls -----------------------------
+// The bar is shown only in merger mode, and is hideable BOTH independently
+// (its own x button) and together with the rest of the UI (the sidebar's
+// collapse also collapses it) — sec. 10.6.
+let chirpHiddenSelf = false;
+const chirpBar = document.getElementById("chirpBar") as HTMLDivElement;
+const chirpCanvas = document.getElementById("chirpCanvas") as HTMLCanvasElement;
+
+function uiCollapsed(): boolean {
+  return document.getElementById("panel")?.classList.contains("hidden") ?? false;
+}
+
+function updateChirpBarVisibility(): void {
+  const show = merger.driver !== null && !chirpHiddenSelf && !uiCollapsed();
+  chirpBar.classList.toggle("show", show);
+}
+
+function drawChirp(playheadFrac: number): void {
+  if (!chirpBar.classList.contains("show") || !audio.samples) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(chirpCanvas.clientWidth * dpr));
+  const h = Math.max(1, Math.round(chirpCanvas.clientHeight * dpr));
+  if (chirpCanvas.width !== w || chirpCanvas.height !== h) {
+    chirpCanvas.width = w;
+    chirpCanvas.height = h;
+  }
+  const ctx = chirpCanvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, w, h);
+  const s = audio.samples;
+  const mid = h / 2;
+  // Peak-per-column envelope of |h(t)| (min-max would clutter at this width).
+  ctx.strokeStyle = "rgba(127,180,255,0.85)";
+  ctx.lineWidth = Math.max(1, dpr);
+  ctx.beginPath();
+  for (let px = 0; px < w; px++) {
+    const i0 = Math.floor((px / w) * s.length);
+    const i1 = Math.max(i0 + 1, Math.floor(((px + 1) / w) * s.length));
+    let peak = 0;
+    for (let i = i0; i < i1 && i < s.length; i++) peak = Math.max(peak, Math.abs(s[i]!));
+    const y = peak * (mid - 2);
+    ctx.moveTo(px + 0.5, mid - y);
+    ctx.lineTo(px + 0.5, mid + y);
+  }
+  ctx.stroke();
+  // Playhead.
+  const px = Math.round(Math.min(Math.max(playheadFrac, 0), 1) * (w - 1));
+  ctx.strokeStyle = "rgba(255,220,120,0.95)";
+  ctx.beginPath();
+  ctx.moveTo(px + 0.5, 0);
+  ctx.lineTo(px + 0.5, h);
+  ctx.stroke();
+}
+
+(document.getElementById("chirpHide") as HTMLButtonElement).addEventListener("click", () => {
+  chirpHiddenSelf = true;
+  updateChirpBarVisibility();
+});
+(document.getElementById("chirpVol") as HTMLInputElement).addEventListener("input", (e) => {
+  audio.volume = Number((e.target as HTMLInputElement).value);
+  if (audio.gain) audio.gain.gain.value = audio.volume;
+});
+(document.getElementById("chirpShift") as HTMLInputElement).addEventListener("change", (e) => {
+  audio.shiftOn = (e.target as HTMLInputElement).checked;
+  rebuildAudioBuffer();
+});
+
 requestAnimationFrame(loop);
 
 // Exposed for end-to-end tests (e2e/): deterministic control and readiness
@@ -810,6 +963,13 @@ declare global {
         /** Driver timing (physical seconds) for cross-language checks. */
         info: () => { inspiralS: number; plungeS: number } | null;
         state: () => import("./merger").MergerState | null;
+        audio: () => {
+          rate: number;
+          toMergerS: number;
+          fLow: number;
+          fQnm: number;
+          samples: number[];
+        } | null;
       };
     };
   }
@@ -846,10 +1006,25 @@ window.__bh = {
     events: GW_EVENTS.map((e) => e.name),
     select: mergerSelect,
     setPlaying: (v: boolean): void => {
+      if (v && merger.driver) {
+        // Play is a user gesture: create the audio context now (autoplay
+        // policy) and build the buffer if it wasn't built yet.
+        ensureAudioCtx();
+        void audio.ctx?.resume();
+        if (!audio.buffer) rebuildAudioBuffer();
+        // A fresh play from the end (or after stop) rewinds and re-arms audio.
+        if (merger.tGeom * merger.driver.mTotalSec > merger.driver.audioDurationS) {
+          merger.tGeom = 0;
+        }
+        if (audio.scheduled) stopChirp();
+      } else {
+        stopChirp();
+      }
       merger.playing = v && merger.driver !== null;
     },
     restart: (): void => {
       merger.tGeom = 0;
+      stopChirp();
     },
     setSlowmo: (v: number): void => {
       merger.slowmo = Math.max(1, v);
@@ -861,5 +1036,19 @@ window.__bh = {
         : null,
     state: (): import("./merger").MergerState | null =>
       merger.driver ? merger.driver.state(merger.tGeom) : null,
+    /** Test hook: the synthesized true-rate chirp samples + metadata. */
+    audio: (): { rate: number; toMergerS: number; fLow: number; fQnm: number;
+      samples: number[] } | null => {
+      if (!merger.driver) return null;
+      const shiftOct = audio.shiftOn ? merger.driver.event.audioShiftOct : 0;
+      const s = merger.driver.synthesizeAudio(audio.rate, shiftOct);
+      return {
+        rate: audio.rate,
+        toMergerS: merger.driver.toMergerS,
+        fLow: merger.driver.event.fLow * Math.pow(2, shiftOct),
+        fQnm: merger.driver.fQnmHz * Math.pow(2, shiftOct),
+        samples: Array.from(s),
+      };
+    },
   },
 };

@@ -230,6 +230,67 @@
         margin: 0;
         color: var(--text);
       }
+      #chirpBar {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        display: none;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        background: var(--glass);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        font-size: 12px;
+        z-index: 6;
+      }
+      #chirpBar.show {
+        display: flex;
+      }
+      #chirpCanvas {
+        flex: 1;
+        height: 44px;
+        min-width: 0;
+        background: rgba(0, 0, 0, 0.35);
+        border-radius: 6px;
+      }
+      #chirpBar .cinfo {
+        flex: 0 0 auto;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.35;
+        min-width: 150px;
+      }
+      #chirpBar .cctl {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #chirpBar label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--dim);
+      }
+      #chirpBar input[type="range"] {
+        width: 70px;
+        accent-color: var(--accent);
+      }
+      #chirpHide {
+        flex: 0 0 auto;
+        width: 24px;
+        height: 24px;
+        background: rgba(127, 180, 255, 0.1);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        color: var(--dim);
+        cursor: pointer;
+        font: 14px/1 system-ui;
+      }
       #fps {
         position: fixed;
         top: 12px;
@@ -353,6 +414,17 @@
           <a href="https://github.com/kyleyhw/black_hole" target="_blank" rel="noopener">repository</a>.
         </p>
       </div>
+    </div>
+    <div id="chirpBar">
+      <canvas id="chirpCanvas"></canvas>
+      <div class="cinfo" id="chirpInfo">—</div>
+      <div class="cctl">
+        <label title="Boost the pitch by the event's audibility shift (as in LIGO's released audio)">
+          <input type="checkbox" id="chirpShift" checked /> boost
+        </label>
+        <label>vol <input type="range" id="chirpVol" min="0" max="1" step="0.05" value="0.6" /></label>
+      </div>
+      <button id="chirpHide" title="Hide the chirp bar">×</button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
