@@ -154,6 +154,110 @@ void binaryScalars(vec3 x, vec3 p, float pt,
 }
 #endif
 
+#ifdef RETARDED
+// --- Time-dependent (retarded) transport (compiled with BINARY + RETARDED) ---
+// The frozen-metric approximation (above) evaluates the holes at their
+// frame-instant positions for EVERY sample along a ray, which is wrong once
+// the holes move appreciably during a light-crossing time. Here each hole
+// rides its instantaneous uniform-velocity worldline c(t) = c0 + v (t - t0),
+// with t0 the frame time (the camera sits at t = 0). Since a boosted-KS hole
+// is the exact field of a UNIFORMLY MOVING hole, the linear worldline is the
+// self-consistent companion to the boost that is already applied; orbital
+// acceleration is still neglected (labeled). The metric is now genuinely
+// time-dependent, so p_t is NOT conserved and coordinate time t must be
+// carried as a fifth integrated quantity (with its conjugate pt = -p_t).
+uniform vec3 uB1Vel;  // dc/dt of hole 1 (lab frame), matches uB1Boost
+uniform vec3 uB2Vel;
+
+// Worldline-advanced hole center at coordinate time tt. A ray escaping to
+// large radius accumulates |tt| ~ hundreds of M, and near merger the light-
+// crossing time is a sizeable fraction of the ORBITAL PERIOD, so the naive
+// uniform-velocity line c0 + v tt is doubly wrong: it flings the hole off its
+// bounded orbit AND misses that the hole has actually swung around. We instead
+// advance the hole along its true CIRCULAR orbit about the barycenter, at the
+// rigid rate omega = |v| / R (R = |c0|), in the frame spanned by the radial
+// unit r_hat = c0/R and the tangential unit t_hat = v/|v|:
+//     c(t) = R [ cos(omega t) r_hat + sin(omega t) t_hat ].
+// This is exact for circular motion, stays on the orbit for all tt (|c| = R),
+// and expands to c0 + v tt for |omega t| << 1 (the near-zone linear limit).
+// With v = 0: omega = 0, t_hat = 0, and it returns c0 exactly (no NaN) —
+// preserving the frozen static limit bit-for-bit. Orbital-plane precession and
+// the shrinking of R during inspiral are neglected within a single ray (the
+// metric is re-snapshotted every frame), and labeled.
+vec3 retCenter(vec3 c0, vec3 v, float tt) {
+  float R = length(c0);
+  float sp = length(v);
+  float ang = (sp / max(R, 1e-6)) * tt;
+  vec3 rhat = c0 / max(R, 1e-6);
+  vec3 that = v / max(sp, 1e-6);
+  return R * (cos(ang) * rhat + sin(ang) * that);
+}
+
+// Hamiltonian at coordinate time tt: identical to the BINARY branch but with
+// the hole centers advanced along their circular worldlines to tt.
+float hamiltonianRT(vec3 x, vec3 p, float pt, float tt) {
+  float f1, f2, s1, s2, cc, D;
+  vec4 l1, l2;
+  binaryTerm(x, retCenter(uB1Pos, uB1Vel, tt), uB1M, uB1A, uB1Boost, f1, l1);
+  binaryTerm(x, retCenter(uB2Pos, uB2Vel, tt), uB2M, uB2A, uB2Boost, f2, l2);
+  s1 = dot(l1.xyz, p) - l1.w * pt;
+  s2 = dot(l2.xyz, p) - l2.w * pt;
+  cc = dot(l1.xyz, l2.xyz) - l1.w * l2.w;
+  D = max(1.0 - f1 * f2 * cc * cc, 1e-4);
+  float wp = s2 - f1 * cc * s1;
+  return 0.5 * (-pt * pt + dot(p, p) - f1 * s1 * s1 - (f2 / D) * wp * wp);
+}
+
+// Full Hamilton flow with dynamical (t, pt):
+//   dx^i/dl = g^{i nu} p_nu           (analytic, same combination as frozen)
+//   dt/dl   = g^{t nu} p_nu = -dH/dpt (the t-component of that same 4-vector)
+//   dp_i/dl = -dH/dx^i                (central FD in the 3 spatial dirs)
+//   dpt/dl  = +dH/dt                  (central FD in coordinate time; pt=-p_t)
+// With v1 = v2 = 0 the centers are static, dpt/dl = 0 (pt conserved), and this
+// reduces bit-for-bit to the frozen BINARY flow — the static-limit anchor.
+void rhsR(vec3 x, vec3 p, float pt, float tt,
+          out vec3 dx, out vec3 dp, out float dtc, out float dptc) {
+  vec3 c1 = retCenter(uB1Pos, uB1Vel, tt);
+  vec3 c2 = retCenter(uB2Pos, uB2Vel, tt);
+  float f1, f2, s1, s2, cc, D;
+  vec4 l1, l2;
+  binaryTerm(x, c1, uB1M, uB1A, uB1Boost, f1, l1);
+  binaryTerm(x, c2, uB2M, uB2A, uB2Boost, f2, l2);
+  s1 = dot(l1.xyz, p) - l1.w * pt;
+  s2 = dot(l2.xyz, p) - l2.w * pt;
+  cc = dot(l1.xyz, l2.xyz) - l1.w * l2.w;
+  D = max(1.0 - f1 * f2 * cc * cc, 1e-4);
+  float wp = s2 - f1 * cc * s1;
+  vec3 wl = l2.xyz - f1 * cc * l1.xyz;
+  dx = p - f1 * s1 * l1.xyz - (f2 / D) * wp * wl;
+  dtc = pt - f1 * s1 * l1.w - (f2 / D) * wp * (l2.w - f1 * cc * l1.w);
+  float epsR = binaryRadius(x, c1, uB1A, uB1Boost);
+  if (uB2M > 0.0) epsR = min(epsR, binaryRadius(x, c2, uB2A, uB2Boost));
+  float eps = 2e-3 * max(epsR, 1.0);
+  float inv2e = 0.5 / eps;
+  dp = -vec3(
+      hamiltonianRT(x + vec3(eps, 0, 0), p, pt, tt) - hamiltonianRT(x - vec3(eps, 0, 0), p, pt, tt),
+      hamiltonianRT(x + vec3(0, eps, 0), p, pt, tt) - hamiltonianRT(x - vec3(0, eps, 0), p, pt, tt),
+      hamiltonianRT(x + vec3(0, 0, eps), p, pt, tt) - hamiltonianRT(x - vec3(0, 0, eps), p, pt, tt)) *
+      inv2e;
+  // dpt/dl = dH/dt: FD in coordinate time (moves both hole centers).
+  dptc = (hamiltonianRT(x, p, pt, tt + eps) - hamiltonianRT(x, p, pt, tt - eps)) * inv2e;
+}
+
+void rk4StepR(inout vec3 x, inout vec3 p, inout float pt, inout float tt, float h) {
+  vec3 k1x, k1p, k2x, k2p, k3x, k3p, k4x, k4p;
+  float k1t, k1pt, k2t, k2pt, k3t, k3pt, k4t, k4pt;
+  rhsR(x, p, pt, tt, k1x, k1p, k1t, k1pt);
+  rhsR(x + 0.5 * h * k1x, p + 0.5 * h * k1p, pt + 0.5 * h * k1pt, tt + 0.5 * h * k1t, k2x, k2p, k2t, k2pt);
+  rhsR(x + 0.5 * h * k2x, p + 0.5 * h * k2p, pt + 0.5 * h * k2pt, tt + 0.5 * h * k2t, k3x, k3p, k3t, k3pt);
+  rhsR(x + h * k3x, p + h * k3p, pt + h * k3pt, tt + h * k3t, k4x, k4p, k4t, k4pt);
+  x += (h / 6.0) * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
+  p += (h / 6.0) * (k1p + 2.0 * k2p + 2.0 * k3p + k4p);
+  pt += (h / 6.0) * (k1pt + 2.0 * k2pt + 2.0 * k3pt + k4pt);
+  tt += (h / 6.0) * (k1t + 2.0 * k2t + 2.0 * k3t + k4t);
+}
+#endif
+
 // Hamiltonian H = 1/2 g^{munu} p_mu p_nu with p_t = pt (§3):
 //   2H = -pt^2 + |p|^2 - f (l^mu p_mu)^2,  l^mu p_mu = dot(l,p) - pt.
 float hamiltonian(vec3 x, vec3 p, float pt, float a) {
@@ -540,6 +644,11 @@ void main() {
 
   int steps = 0;
   int outcome = 0;  // 0 budget-exceeded, 1 captured, 2 escaped
+#ifdef RETARDED
+  // Coordinate time along the ray, referenced to the frame instant (camera at
+  // t = 0). Drives the holes' worldline positions c(tt) = c0 + v tt.
+  float tt = 0.0;
+#endif
   for (int i = 0; i < HARD_CAP; i++) {
     if (i >= uMaxSteps) break;
 #ifdef WEAK_FIELD
@@ -553,12 +662,20 @@ void main() {
 #elif defined(BINARY)
     // r is the rest radius about hole 1 (equal to the Kerr r when M2 = 0,
     // and a valid escape measure since both holes sit near the origin).
-    float r = binaryRadius(x, uB1Pos, uB1A, uB1Boost);
+    // Under RETARDED the centers ride their worldlines to the ray's time tt.
+#ifdef RETARDED
+    vec3 bc1 = retCenter(uB1Pos, uB1Vel, tt);
+    vec3 bc2 = retCenter(uB2Pos, uB2Vel, tt);
+#else
+    vec3 bc1 = uB1Pos;
+    vec3 bc2 = uB2Pos;
+#endif
+    float r = binaryRadius(x, bc1, uB1A, uB1Boost);
     if (r < bCap1) {
       outcome = 1;
       break;
     }
-    if (uB2M > 0.0 && binaryRadius(x, uB2Pos, uB2A, uB2Boost) < bCap2) {
+    if (uB2M > 0.0 && binaryRadius(x, bc2, uB2A, uB2Boost) < bCap2) {
       outcome = 1;
       break;
     }
@@ -590,14 +707,24 @@ void main() {
 #elif defined(BINARY)
     float f1s, f2s, ss1, ss2, ccs, Ds;
     vec4 l1s, l2s;
+#ifdef RETARDED
+    // Scalars at the ray-time hole positions bc1, bc2 (worldline-advanced).
+    binaryTerm(x, bc1, uB1M, uB1A, uB1Boost, f1s, l1s);
+    binaryTerm(x, bc2, uB2M, uB2A, uB2Boost, f2s, l2s);
+    ss1 = dot(l1s.xyz, p) - l1s.w * pt;
+    ss2 = dot(l2s.xyz, p) - l2s.w * pt;
+    ccs = dot(l1s.xyz, l2s.xyz) - l1s.w * l2s.w;
+    Ds = max(1.0 - f1s * f2s * ccs * ccs, 1e-4);
+#else
     binaryScalars(x, p, pt, f1s, l1s, f2s, l2s, ss1, ss2, ccs, Ds);
+#endif
     float wps = ss2 - f1s * ccs * ss1;
     vec3 v = p - f1s * ss1 * l1s.xyz - (f2s / Ds) * wps * (l2s.xyz - f1s * ccs * l1s.xyz);
     // Displacement-bounded step, guided by the NEARER hole's local scale
     // (single-Kerr law when M2 = 0 — the second min only enters when massive).
     float guide = min(r - 0.9 * bRh1, r);
     if (uB2M > 0.0) {
-      float r2b = binaryRadius(x, uB2Pos, uB2A, uB2Boost);
+      float r2b = binaryRadius(x, bc2, uB2A, uB2Boost);
       guide = min(guide, min(r2b - 0.9 * bRh2, r2b));
     }
     float h = clamp(0.1 * guide / max(length(v), 1e-6), 1e-4, 4.0);
@@ -610,7 +737,11 @@ void main() {
 #endif
     vec3 xPrev = x;
     vec3 pPrev = p;
+#ifdef RETARDED
+    rk4StepR(x, p, pt, tt, h);  // advances (x, p, pt, tt) together
+#else
     rk4Step(x, p, h, pt, a);
+#endif
     steps++;
 
 #ifndef BINARY

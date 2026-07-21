@@ -738,6 +738,80 @@ amplitude) is a $C^1$ schematic blend over the final $\sim$orbit: the one
 regime where neither PN nor perturbation theory applies, and honestly
 labeled — numerical relativity is the only correct tool there.
 
+## 14. Time-dependent (retarded) ray transport
+
+The binary metric of §11 is **time-dependent**: the hole centers
+$\mathbf c_i$ and boosts move as the system inspirals. Two consequences
+follow, and the default renderer sidesteps both with the **frozen-metric**
+approximation — it evaluates $g_{\mu\nu}$ at the *frame instant* for every
+sample along every ray, as if the holes were momentarily at rest at their
+current positions. This is the standard real-time approximation, but it is
+wrong by construction once the light-crossing time is comparable to the
+orbital timescale, i.e. exactly near merger.
+
+**What is dropped.** For a stationary metric, $\partial_t g_{\mu\nu} = 0$
+makes $p_t$ a constant of motion (§3), so a ray needs only its spatial
+$(\mathbf x, \mathbf p)$ and a fixed $p_t$. When the metric depends on $t$,
+$p_t$ is **no longer conserved**:
+
+$$\frac{dp_t}{d\lambda} = -\frac{\partial H}{\partial t}
+= -\tfrac12\,\partial_t g^{\alpha\beta}(x)\,p_\alpha p_\beta \neq 0,$$
+
+and coordinate time must itself be integrated,
+$dt/d\lambda = \partial H/\partial p_t = g^{t\nu}p_\nu$. The retarded mode
+carries the full null-geodesic state $(t, \mathbf x, p_t, \mathbf p)$ and
+evolves all of it with the same RK4 scheme.
+
+**The worldline model.** A ray sampling the metric at its local coordinate
+time $t$ should find hole $i$ where it *was* at that time — the light-travel
+offset the frozen picture ignores. A naive uniform-velocity line
+$\mathbf c_i^{(0)} + \mathbf v_i t$ fails badly here for two reasons: an
+escaping ray accumulates $|t|\sim$ hundreds of $M$ and would fling the hole
+off to infinity, and near merger the light-crossing time is a sizeable
+fraction of the orbital period, so the hole has genuinely *swung around* its
+orbit. We therefore advance each center along its true **circular orbit**
+about the barycenter at the rigid rate $\omega = |\mathbf v_i| / R_i$
+($R_i = |\mathbf c_i^{(0)}|$), in the frame of the radial unit
+$\hat{\mathbf r} = \mathbf c_i^{(0)}/R_i$ and tangential unit
+$\hat{\mathbf t} = \mathbf v_i/|\mathbf v_i|$:
+
+$$\mathbf c_i(t) = R_i\big[\cos(\omega t)\,\hat{\mathbf r}
+  + \sin(\omega t)\,\hat{\mathbf t}\big].$$
+
+This is exact for circular motion, stays on the orbit for all $t$
+($|\mathbf c_i| = R_i$), and reduces to the linear form
+$\mathbf c_i^{(0)} + \mathbf v_i t$ for $|\omega t|\ll1$ (the near-zone
+limit). The boost $B_i$ is held at its frame value along a ray, and the slow
+inspiral shrink of $R_i$ and any orbital-plane precession are neglected within
+a single ray (the metric is re-snapshotted every frame) — labeled
+approximations, one rung finer than the frozen metric they replace.
+
+**Equations of motion.** With $p_t \equiv -E$ carried as the variable
+`pt` $=E$, and writing the superposed-inverse scalars of §11 evaluated at the
+advanced centers $\mathbf c_i(t)$,
+
+$$\frac{dx^i}{d\lambda} = g^{i\nu}p_\nu, \qquad
+\frac{dt}{d\lambda} = g^{t\nu}p_\nu, \qquad
+\frac{dp_i}{d\lambda} = -\partial_{x^i}H, \qquad
+\frac{d(\text{pt})}{d\lambda} = +\partial_t H,$$
+
+where the spatial force $\partial_{x^i}H$ uses the same central differences as
+§5 and the new $\partial_t H$ is a fourth central difference in coordinate
+time (which displaces both centers by $\mathbf v_i\,\varepsilon$). The
+$t$-component of the analytic 4-velocity $g^{t\nu}p_\nu$ is the same
+Sherman–Morrison combination as the spatial $g^{i\nu}p_\nu$, read off its time
+slot, so $dt/d\lambda$ costs nothing extra.
+
+**Static-limit anchor.** If $\mathbf v_i = 0$ the centers are constant,
+$\partial_t H = 0$ (so `pt` stays fixed), and every arithmetic operation
+reduces to the frozen flow: the two programs render **bit-for-bit
+identically** (measured pixel difference exactly $0$). The end-to-end suite
+asserts this on the static two-hole preview, then confirms that for a moving
+system the retarded and frozen images genuinely differ, that the effect
+**grows as the orbit tightens** (larger $\omega\,\times$ crossing time), and
+that both stay finite — the observable signature of retardation
+(`e2e/reports/phase16.md`, suite #16).
+
 ## References
 
 <span id="ref-bpt-1972">[1]</span> Bardeen, J. M., Press, W. H., & Teukolsky, S. A. (1972). *Rotating Black Holes: Locally Nonrotating Frames, Energy Extraction, and Scalar Synchrotron Radiation.* ApJ, 178, 347. [Link](https://doi.org/10.1086/151796)

@@ -28,6 +28,7 @@ export interface PanelParams {
   binaryQ: number; // binary preview: mass ratio M2/M1
   binaryChi1: number; // binary preview: aligned spin of the primary
   binaryChi2: number; // binary preview: aligned spin of the secondary
+  retarded: boolean; // merger: integrate (t, p_t) with worldline-advanced holes
   masses: { m: number; pos: [number, number, number] }[];
 }
 
@@ -356,17 +357,80 @@ const LEARN = {
       down — they are regularizations, not horizons.</p>`,
   },
   binary: {
-    title: "Binary preview (superposed Kerr\u2013Schild)",
-    html: `<p>Two black holes rendered with a <b>superposed Kerr\u2013Schild
-      metric</b>: g = \u03b7 + f\u2081l\u2081l\u2081 + f\u2082l\u2082l\u2082, whose inverse stays
-      closed-form via two Sherman\u2013Morrison updates. This is a controlled
-      approximation \u2014 exact for each hole alone, with error of order
-      M\u2081M\u2082/d at separation d \u2014 the same construction used to build
-      binary initial data in numerical relativity. Light propagation through
-      this metric is integrated exactly, so you see genuine inter-hole
-      lensing: each shadow is deformed and multiply imaged by the other
-      hole. This static preview becomes the LIGO-catalog merger animation
-      (orbits, chirp audio) in the next phase.</p>`,
+    title: "Binary mergers (LIGO/GWTC events)",
+    html: `<p>Each preset replays a <b>real LIGO/Virgo detection</b> with its
+      published source-frame masses and spins. What you see is a stack of
+      approximations, each honest about where it stops \u2014 an
+      <b>honesty ladder</b>, rung by rung:</p>
+      <p><b>1. The metric (exact light transport).</b> Two holes are rendered
+      with a <b>superposed Kerr\u2013Schild metric</b>,
+      g = \u03b7 + f\u2081l\u2081l\u2081 + f\u2082l\u2082l\u2082, each term a boosted
+      Kerr\u2013Schild hole at its instantaneous orbital position and velocity.
+      The inverse stays closed-form via two Sherman\u2013Morrison rank-1 updates,
+      so no matrix is inverted in the shader. This is exact for each hole
+      alone (error of order M\u2081M\u2082/d at separation d) \u2014 the same
+      construction used to build binary initial data in numerical relativity.
+      Light through this metric is integrated <b>exactly</b>: the inter-hole
+      lensing, deformed shadows, and multiple images are real geodesics, not
+      an artist's impression.</p>
+      <p><b>2. The orbit (post-Newtonian inspiral).</b> The separation and phase
+      follow a <b>TaylorT4</b> post-Newtonian evolution (3.5PN non-spinning
+      plus 1.5PN spin\u2013orbit through the effective spin \u03c7_eff). The single
+      number that controls the early chirp rate is the <b>chirp mass</b>
+      M_c = (M\u2081M\u2082)^{3/5}/(M\u2081+M\u2082)^{1/5} \u2014 it, not the total mass,
+      sets d f/d t. PN is an expansion in v/c, so it is trustworthy while the
+      holes are well separated and degrades as they approach; that is exactly
+      why the next rungs exist.</p>
+      <p><b>3. The plunge (schematic C\u00b9 blend).</b> From the innermost stable
+      circular orbit inward, PN is invalid. We bridge to the remnant with a
+      short <b>C\u00b9 Hermite blend</b> over about 1.5 ISCO orbits \u2014 continuous
+      in value and slope, but <b>schematic</b>: it is a smooth interpolation,
+      not a solution of the field equations. Full plunge dynamics need
+      numerical relativity.</p>
+      <p><b>4. The ringdown (quasi-normal mode).</b> The remnant settles by a
+      single damped sinusoid \u2014 the dominant (2,2,0) <b>quasi-normal mode</b>,
+      with frequency and damping time from the Berti\u2013Cardoso\u2013Will fits for
+      the final mass and spin. Only the loudest mode is kept; the true signal
+      is a sum over overtones.</p>
+      <p><b>5. Time and sound.</b> Near merger the orbital frequency exceeds
+      100 Hz \u2014 unrepresentable at 60 fps \u2014 so the picture runs in
+      <b>slow motion</b> (default \u00d725) while the chirp plays at
+      <b>true rate</b>, fired once so its merger instant lands on the visual
+      merger. The audio is synthesized from the <b>same</b> phase track that
+      drives the orbit (h \u221d M^{5/3} f^{2/3} cos 2\u03c6), so sound and picture
+      are phase-locked by construction. The optional pitch shift is a labeled
+      cosmetic octave transposition, as in LIGO's own released audio.</p>
+      <p><b>Transport caveat.</b> Because the metric is now time-dependent,
+      p_t is no longer exactly conserved. Rendering uses the <b>frozen-metric</b>
+      (per-frame snapshot) approximation \u2014 standard for real-time
+      black-hole visualization \u2014 rather than integrating the retarded field
+      along each ray.</p>`,
+  },
+  retarded: {
+    title: "Retarded transport (time-dependent metric)",
+    html: `<p>By default the merger is rendered with the <b>frozen-metric</b>
+      approximation: every sample along a light ray sees the two holes at
+      their positions <i>at the current frame</i>. That is standard for
+      real-time black-hole visualization, but it ignores that the holes move
+      while the light is crossing the system — and near merger they move
+      <i>fast</i>.</p>
+      <p>With this toggle on, the renderer instead integrates the
+      <b>time-dependent</b> metric honestly. Each hole rides its true
+      <b>circular orbit</b> about the barycenter — c(t) = R[cos(ωt) r̂ +
+      sin(ωt) t̂], which stays on the orbit for all t and reduces to the
+      uniform-velocity line c₀ + v·t for slow orbits — and the ray carries two
+      extra integrated quantities: the coordinate time t and its conjugate
+      momentum p_t. Because the metric now depends on t, <b>p_t is no longer
+      conserved</b> — the quantity that is exactly constant in the static case
+      genuinely drifts here, which is the whole point.</p>
+      <p>It costs more (a fourth finite-difference direction, in time, per RK4
+      stage). The effect is dramatic near merger, where the light-crossing time
+      is a real fraction of the orbital period, so light passing one hole finds
+      the other has swung well around its orbit. In the <b>static limit</b>
+      (v = 0) it reduces bit-for-bit to the frozen result, the validation
+      anchor. Still neglected within a single ray: the boost is frozen at the
+      frame value, and the slow inspiral shrink of the orbit and any plane
+      precession — one rung finer than the frozen metric, not the last rung.</p>`,
   },
   tilt: {
     title: "Disk tilt",
@@ -643,6 +707,16 @@ export function buildPanel(
   const binNote = el("div", { class: "note-row" });
   binNote.append(el("span", {}, "superposed-KS approximation \u2014 error \u223c M\u2081M\u2082/d "));
   bin.body.append(binNote);
+  // Phase 18: frozen vs. retarded (time-dependent) ray transport.
+  add(bin.body, toggle("retarded transport", () => params.retarded, (v) => {
+    params.retarded = v;
+  }));
+  const retNote = el("div", { class: "note-row", id: "retardedNote" });
+  retNote.append(
+    el("span", {}, "integrate (t, p_t); holes ride their worldlines "),
+    infoBtn(LEARN.retarded.title, LEARN.retarded.html),
+  );
+  bin.body.append(retNote);
 
   // --- Presets ---
   const pr = section("Presets", true);

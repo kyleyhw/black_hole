@@ -438,14 +438,14 @@ NR merger dynamics; visible GW metric perturbations; kicks; precessing spins (al
 81. [completed] WebAudio chirp synthesized from the same φ(t) (inspiral → C¹ blend → damped QNM), true-rate playback aligned to complete at the visual merger; per-event frequency-shift toggle (labeled); volume control.
 82. [completed] Chirp bar: scrolling h(t) canvas with playhead, live f_GW/separation/time-to-merger readouts; **hideable independently and with the master UI toggle**.
 83. [completed] e2e `phase15.cjs`: sliding-DFT frequency-sweep check on the synthesized buffer (OfflineAudioContext superseded — the buffer is generated analytically, so its samples are FFT'd directly) → FFT → chirp f(t) matches the TaylorT4 sweep within tolerance; waveform canvas draws; both hide paths work; report.
-84. [in-progress] Commit; **checkpoint**: chirp + animation reviewed together (implementation + certification complete).
+84. [completed] Commit; **checkpoint**: chirp + animation reviewed together (implementation + certification complete). Committed f25b0b1.
 
 ## Phase 17: Merger Mode — Polish, Docs, Release (§10)
 
-85. [pending] Cinematic per-event presets; README merger section with animation GIF; "What's physical and what isn't" entries for every approximation in the §10.1 ladder (superposed KS, frozen-metric transport, PN truncation, schematic blend, audio shift); learn-more popups (chirp mass, PN, QNM, honesty ladder).
-86. [pending] Full 10-suite certification sweep + validation suite; deploy; report.
-87. [pending] Commit; **checkpoint**: release review; Phase 18 go/no-go decision (owner).
+85. [completed] Cinematic per-event presets (3/4 framing with per-event pull-back scaled to the initial separation); README merger section with animation GIF (`docs/img/merger.gif`); "What's physical and what isn't" entries for every approximation in the §10.1 ladder (superposed KS, frozen-metric transport, PN truncation, schematic blend, audio shift); learn-more popups (honesty ladder enriched in `LEARN.binary`).
+86. [completed] Full 12-suite certification sweep + validation suite; deploy; report (`e2e/reports/phase17.md`).
+87. [completed] Commit; **checkpoint**: release review; Phase 18 committed via `/goal complete phases 16 to 18` (owner directive).
 
-## Phase 18 (deferred decision): Time-Dependent Ray Transport
+## Phase 18: Time-Dependent Ray Transport (§10, committed via /goal)
 
-88. [pending] Integrate (t, p_t) along rays with 4D FD gradients (retarded-metric transport replacing the frozen-metric snapshot); frozen-vs-retarded comparison toggle; validation of the static limit. **Not started until the owner approves after Phase 17.**
+88. [completed] Integrate (t, p_t) along rays with a 4th (temporal) FD gradient (retarded-metric transport: holes ride uniform-velocity worldlines c(t)=c₀+v·t replacing the frozen-metric snapshot); frozen-vs-retarded comparison toggle in the Merger panel; `RETARDED` shader variant; derivations §14; validation of the static limit + retardation-grows-with-speed (`e2e/reports/phase16.md`, suite #16). Report.

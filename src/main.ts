@@ -48,6 +48,7 @@ const params: PanelParams = {
   binaryQ: 1,
   binaryChi1: 0.7,
   binaryChi2: -0.3,
+  retarded: false, // Phase 18: frozen-metric transport by default; toggle for retarded
   masses: [
     { m: 1.0, pos: [0, -8, 0] },
     { m: 0.5, pos: [0, 8, 2] },
@@ -67,6 +68,10 @@ const sceneProg = createProgram(gl, vertSrc, sceneSrc);
 const weakProg = createProgram(gl, vertSrc, sceneSrc, ["WEAK_FIELD"]);
 // Binary merger variant (superposed boosted Kerr-Schild, derivations.md sec. 11).
 const binaryProg = createProgram(gl, vertSrc, sceneSrc, ["BINARY"]);
+// Retarded-transport variant (Phase 18): the same binary metric, but the holes
+// ride their worldlines along each ray and (t, p_t) are integrated, so the
+// time-dependence of the metric is honored instead of frozen per frame.
+const retardedProg = createProgram(gl, vertSrc, sceneSrc, ["BINARY", "RETARDED"]);
 const blurProg = createProgram(gl, vertSrc, blurSrc);
 const compositeProg = createProgram(gl, vertSrc, compositeSrc);
 
@@ -82,12 +87,16 @@ const uWeak = uniforms(gl, weakProg, [
   "uMaxSteps", "uDebugView", "uDiskOn",
   "uNMasses", "uMassPos", "uMassM",
 ]);
-const uBinary = uniforms(gl, binaryProg, [
+const BINARY_UNIFORMS = [
   "uResolution", "uCamPos", "uCamRight", "uCamUp", "uCamForward", "uTanHalfFov",
   "uSpin", "uMaxSteps", "uDebugView", "uDiskOn",
   "uE0", "uE1", "uE2", "uE3", "uSkyShift",
   "uB1Pos", "uB1M", "uB1A", "uB1Boost", "uB2Pos", "uB2M", "uB2A", "uB2Boost",
-]);
+];
+const uBinary = uniforms(gl, binaryProg, BINARY_UNIFORMS);
+// Same uniforms plus the per-hole coordinate velocities that define the
+// worldlines c(t) = c0 + v t used by the retarded integrator.
+const uRetarded = uniforms(gl, retardedProg, [...BINARY_UNIFORMS, "uB1Vel", "uB2Vel"]);
 const uBlur = uniforms(gl, blurProg, ["uTex", "uTexelSize", "uDir", "uThreshold"]);
 const uComp = uniforms(gl, compositeProg, [
   "uScene", "uBloom", "uResolution", "uBloomStrength",
@@ -344,6 +353,15 @@ function mergerSelect(name: string | null): void {
   merger.playing = false;
   params.mode = "binary";
   chirpHiddenSelf = false; // re-selecting an event brings the bar back
+  // Cinematic per-event framing: a fixed 3/4 view from above the orbital
+  // plane (both holes visible through the whole inspiral, the ringdown
+  // shadow centered), but the pull-back scales with the event's initial
+  // separation — light/low-f_low systems (e.g. GW151226) begin far wider
+  // than heavy ones, so a single radius would either crop them or leave the
+  // heavy events as specks. radius ~ 1.6 sep + 8, clamped to a sane range.
+  camera.azimuth = 0.35;
+  camera.elevation = 0.5;
+  camera.radius = Math.min(34, Math.max(18, 1.6 * merger.driver.initialSeparation + 8));
   rebuildAudioBuffer();
 }
 
@@ -552,28 +570,38 @@ function frame(now: number): void {
     gl.uniform1fv(uWeak.get("uMassM") ?? null, ms);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   } else if (params.mode === "binary") {
-    gl.useProgram(binaryProg);
-    setCam(uBinary);
-    gl.uniform2f(uBinary.get("uResolution") ?? null, scene.w, scene.h);
+    // Retarded transport (Phase 18) is a compile-time sibling of the frozen
+    // binary program with identical uniforms plus per-hole velocities; the
+    // toggle just selects which program renders this frame.
+    const ret = params.retarded;
+    const prog = ret ? retardedProg : binaryProg;
+    const u = ret ? uRetarded : uBinary;
+    gl.useProgram(prog);
+    setCam(u);
+    gl.uniform2f(u.get("uResolution") ?? null, scene.w, scene.h);
     // uSpin only feeds the shared debug-view radius reference in this mode.
-    gl.uniform1f(uBinary.get("uSpin") ?? null, params.binaryChi1);
-    gl.uniform1i(uBinary.get("uMaxSteps") ?? null, params.maxSteps);
-    gl.uniform1i(uBinary.get("uDebugView") ?? null, params.debugView);
-    gl.uniform1i(uBinary.get("uDiskOn") ?? null, 0); // no disk during merger (sec. 10.7)
-    gl.uniform4f(uBinary.get("uE0") ?? null, ...packLeg(tetrad[0]));
-    gl.uniform4f(uBinary.get("uE1") ?? null, ...packLeg(tetrad[1]));
-    gl.uniform4f(uBinary.get("uE2") ?? null, ...packLeg(tetrad[2]));
-    gl.uniform4f(uBinary.get("uE3") ?? null, ...packLeg(tetrad[3]));
-    gl.uniform1i(uBinary.get("uSkyShift") ?? null, params.skyShift ? 1 : 0);
+    gl.uniform1f(u.get("uSpin") ?? null, params.binaryChi1);
+    gl.uniform1i(u.get("uMaxSteps") ?? null, params.maxSteps);
+    gl.uniform1i(u.get("uDebugView") ?? null, params.debugView);
+    gl.uniform1i(u.get("uDiskOn") ?? null, 0); // no disk during merger (sec. 10.7)
+    gl.uniform4f(u.get("uE0") ?? null, ...packLeg(tetrad[0]));
+    gl.uniform4f(u.get("uE1") ?? null, ...packLeg(tetrad[1]));
+    gl.uniform4f(u.get("uE2") ?? null, ...packLeg(tetrad[2]));
+    gl.uniform4f(u.get("uE3") ?? null, ...packLeg(tetrad[3]));
+    gl.uniform1i(u.get("uSkyShift") ?? null, params.skyShift ? 1 : 0);
     const [bh1, bh2] = binaryHoles();
-    gl.uniform3f(uBinary.get("uB1Pos") ?? null, ...bh1.center);
-    gl.uniform1f(uBinary.get("uB1M") ?? null, bh1.mass);
-    gl.uniform1f(uBinary.get("uB1A") ?? null, bh1.a);
-    gl.uniformMatrix4fv(uBinary.get("uB1Boost") ?? null, false, lorentzBoostColMajor(bh1.velocity));
-    gl.uniform3f(uBinary.get("uB2Pos") ?? null, ...bh2.center);
-    gl.uniform1f(uBinary.get("uB2M") ?? null, bh2.mass);
-    gl.uniform1f(uBinary.get("uB2A") ?? null, bh2.a);
-    gl.uniformMatrix4fv(uBinary.get("uB2Boost") ?? null, false, lorentzBoostColMajor(bh2.velocity));
+    gl.uniform3f(u.get("uB1Pos") ?? null, ...bh1.center);
+    gl.uniform1f(u.get("uB1M") ?? null, bh1.mass);
+    gl.uniform1f(u.get("uB1A") ?? null, bh1.a);
+    gl.uniformMatrix4fv(u.get("uB1Boost") ?? null, false, lorentzBoostColMajor(bh1.velocity));
+    gl.uniform3f(u.get("uB2Pos") ?? null, ...bh2.center);
+    gl.uniform1f(u.get("uB2M") ?? null, bh2.mass);
+    gl.uniform1f(u.get("uB2A") ?? null, bh2.a);
+    gl.uniformMatrix4fv(u.get("uB2Boost") ?? null, false, lorentzBoostColMajor(bh2.velocity));
+    if (ret) {
+      gl.uniform3f(u.get("uB1Vel") ?? null, ...bh1.velocity);
+      gl.uniform3f(u.get("uB2Vel") ?? null, ...bh2.velocity);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   } else {
   gl.useProgram(sceneProg);
@@ -952,6 +980,8 @@ declare global {
       /** Diagnostic: |mapped camera velocity| used last frame (units of c);
        *  0 when static, bounded well below 1 while dragging. */
       camSpeed: () => number;
+      /** Tooling: render one frame and read the canvas as a PNG data URL. */
+      capture: () => string;
       /** Merger animation control (Phase 15). */
       merger: {
         events: readonly string[];
@@ -963,6 +993,8 @@ declare global {
         /** Driver timing (physical seconds) for cross-language checks. */
         info: () => { inspiralS: number; plungeS: number } | null;
         state: () => import("./merger").MergerState | null;
+        seek: (tGeom: number) => void;
+        tMergerGeom: () => number | null;
         audio: () => {
           rate: number;
           toMergerS: number;
@@ -1002,6 +1034,15 @@ window.__bh = {
     return -q[0] + m.f * lq;
   },
   camSpeed: (): number => lastCamSpeed,
+  /** Tooling seam: render one frame synchronously and read the WebGL canvas
+   * back as a PNG data URL (preserveDrawingBuffer is off, so the render and
+   * the read must share a task — same pattern as screenshot()). Used to
+   * capture deterministic frames for the README GIF without tripping the
+   * backdrop-blur screenshot hang. */
+  capture: (): string => {
+    frame(performance.now());
+    return canvas.toDataURL("image/png");
+  },
   merger: {
     events: GW_EVENTS.map((e) => e.name),
     select: mergerSelect,
@@ -1036,6 +1077,13 @@ window.__bh = {
         : null,
     state: (): import("./merger").MergerState | null =>
       merger.driver ? merger.driver.state(merger.tGeom) : null,
+    /** Tooling seam: position the merger clock (geometric time) without
+     * playing, so frames can be captured deterministically (README GIF). */
+    seek: (tGeom: number): void => {
+      merger.tGeom = tGeom;
+    },
+    tMergerGeom: (): number | null =>
+      merger.driver ? merger.driver.toMergerS / merger.driver.mTotalSec : null,
     /** Test hook: the synthesized true-rate chirp samples + metadata. */
     audio: (): { rate: number; toMergerS: number; fLow: number; fQnm: number;
       samples: number[] } | null => {

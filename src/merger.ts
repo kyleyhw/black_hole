@@ -192,6 +192,13 @@ export class MergerDriver {
     return this.inspiralS + this.plungeS;
   }
 
+  /** Barycentric separation at f_low (r = 1/x_0), in total-mass units.
+   * Used to frame the camera per event: lighter/lower-f_low systems start
+   * wider, so the initial shot must pull back to keep both holes in view. */
+  get initialSeparation(): number {
+    return 1 / this.xs[0]!;
+  }
+
   /** State at geometric time tGeom in [0, inf); tGeom = 0 is f_low. */
   state(tGeom: number): MergerState {
     if (tGeom < this.tIscoGeom) return this.inspiralState(tGeom);
