@@ -65,8 +65,9 @@ $r_+$ and $r_{\rm ISCO}$ to km/au for your chosen mass.
 
 Merger mode replays **real LIGO/Virgo detections** — GW150914 and five
 others, with their published source-frame masses and spins ([GWTC-2.1][6])
-— as a cinematic inspiral → plunge → ringdown, with the gravitational-wave
-**chirp synthesized from the same model** and played at true rate.
+— as a cinematic inspiral → plunge → ringdown against a lensed Milky-Way
+backdrop, with a strip along the bottom plotting the **actual GW150914 strain
+data** (amplitude vs time). Silent by design.
 
 ![GW150914 merger — inspiral to ringdown, with the chirp waveform](docs/img/merger.gif)
 
@@ -83,13 +84,16 @@ matrix is inverted in the shader — and light is integrated through it
 imaged by its companion) is a real geodesic effect. The orbit follows a
 **TaylorT4** post-Newtonian evolution (3.5PN non-spinning + 1.5PN
 spin–orbit), bridged through the plunge to the remnant by a $C^1$ blend,
-which then rings down on its dominant **(2,2,0) quasi-normal mode**. The
-audio is the restricted-PN strain $h \propto M^{5/3} f^{2/3}\cos 2\varphi$
-built from the *same* phase track that drives the picture, so sound and
-image are phase-locked; near merger the orbital frequency exceeds 100 Hz, so
-the visuals run in slow motion while the chirp plays at true rate, timed to
-land its merger instant on the visual one. Every rung of this construction
-is a labeled approximation — see below, and
+which then rings down on its dominant **(2,2,0) quasi-normal mode**. Near
+merger the orbital frequency exceeds 60 Hz — unrepresentable at 60 fps — so
+the visuals run in slow motion (default ×25). The bottom strip is **not** a
+model of the animation: it plots the *real* GW150914 detection — the H1
+observed strain (whitened, band-passed 35–350 Hz) with the released
+numerical-relativity reconstruction overlaid, straight from the LIGO Open
+Science Center ([`src/gw150914_chirp.json`](src/gw150914_chirp.json), DOI
+[10.7935/K5MW2F23](https://doi.org/10.7935/K5MW2F23)) — with a playhead swept
+to land on the visual merger. Every rung of the *visual* construction is a
+labeled approximation — see below, and
 [docs/derivations.md §12–13](docs/derivations.md). Adding an event is one
 JSON entry ([`src/gwevents.json`](src/gwevents.json)); each ships with the
 catalog DOI.
@@ -148,9 +152,12 @@ approximations, each honest about where it stops:
    need numerical relativity.
 4. **Ringdown — dominant mode only.** A single damped (2,2,0) quasi-normal
    mode (Berti–Cardoso–Will fits); the real signal is a sum over overtones.
-5. **Time & sound — remapped, phase-locked.** Visuals are slowed (default
-   ×25) while the chirp plays at true rate; the optional pitch shift is a
-   labeled cosmetic octave transposition, as in LIGO's own released audio.
+5. **Time & backdrop — remapped, procedural.** Visuals are slowed (default
+   ×25) so the sub-second merger is watchable. The Milky-Way background is a
+   procedural (zero-asset) starfield + galactic band — its *deflection* is
+   exact GR, but *where* each star sits is invented, same as in Kerr mode. The
+   bottom strip is the exception to "invented": it is the **real** GW150914
+   strain, not a model.
 
 **Transport caveat (with an opt-in fix).** The binary metric is
 time-dependent, so $p_t$ is no longer exactly conserved. By default,
@@ -204,8 +211,8 @@ the **superposed Kerr–Schild binary metric** (Sherman–Morrison inverse
 exact to 4×10⁻¹⁶, single-hole limit at the expected first-order rate,
 far-field additivity to 0.4%, `validation/plots/superposed_ks.png`). The
 in-browser suite additionally cross-checks the TypeScript TaylorT4 driver
-against the Python reference and FFT-verifies that the synthesized audio's
-frequency sweep matches the same evolution.
+against the Python reference, and verifies that the real embedded GW150914
+strain chirps (its zero-crossing rate rises into merger).
 
 **In-browser cross-check:** the rendered Schwarzschild shadow radius at
 r₀ = 18 M matches the textbook local-frame prediction

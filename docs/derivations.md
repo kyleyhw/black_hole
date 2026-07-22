@@ -660,9 +660,9 @@ $$\tau(f) = \frac{5}{256}\, \mathcal{M}^{-5/3}\, (\pi f)^{-8/3}.$$
 
 **Detector frame.** Observed frequencies scale with the *redshifted*
 masses: a source at redshift $z$ chirps as a binary of masses $(1+z)\,m$.
-The catalog stores source-frame masses and $z$; the audio synthesis uses
-$(1+z)\,m$ so the chirp matches what the detectors heard, while the panel
-displays source-frame values. For GW150914 (source
+The catalog stores source-frame masses and $z$; the driver uses
+$(1+z)\,m$ so the animation timing matches the detector-frame chirp, while
+the panel displays source-frame values. For GW150914 (source
 $\mathcal{M} \approx 28.6\,M_\odot$, $z \approx 0.09$, detector-frame
 $\mathcal{M} \approx 31\,M_\odot$) the leading-order formula gives
 $\tau(35\ \text{Hz}) \approx 0.16$ s — already the observed $\sim 0.2$ s of
@@ -677,15 +677,19 @@ in the strong field and are dominated by the schematic merger blend anyway.
 Hole positions on circles about the center of mass with radii
 $r_{1,2} = (m_{2,1}/M)\, r$.
 
-**Waveform for audio.** Restricted (quadrupole) inspiral amplitude,
-
-$$h(t) \propto \mathcal{M}^{5/3} f_{\rm GW}^{2/3}(t)\,
-\cos 2\varphi_{\rm orb}(t),$$
-
-blended $C^1$ into the ringdown of §13. The overall amplitude is a volume
-knob (we are not modeling the detector response); the *frequency
-evolution* is the physics, and it is asserted numerically by an FFT of the
-rendered audio buffer against the TaylorT4 sweep.
+**Chirp strip (real data, not a model).** The strip along the bottom of the
+merger view is deliberately *not* driven by the animation's PN model. It plots
+the **actual GW150914 detection**: the H1 observed strain, whitened with a
+Welch PSD and band-passed 35–350 Hz, with the released best-match
+numerical-relativity template overlaid (same whitening/bandpass, its peak
+aligned to $t = 0$). Both come straight from the LIGO Open Science Center
+(GWOSC file `H-H1_LOSC_4_V2-1126259446-32.hdf5` and `GW150914_4_template.hdf5`,
+DOI 10.7935/K5MW2F23) and are embedded, decimated to 600 samples over
+$[-0.13, +0.04]$ s about merger, in `src/gw150914_chirp.json`. A playhead runs
+across it in step with the visual clock (mapped so the visual merger lands on
+the trace's $t = 0$). There is **no audio** — the animation is silent by
+design. The e2e suite asserts the embedded reconstruction genuinely chirps
+(its zero-crossing rate rises into merger).
 
 **Plunge blend schedule (schematic, labeled; Phase 15 implementation).**
 When the PN description ends at the ISCO the animation blends to the
@@ -707,13 +711,12 @@ the field equations — it is the labeled bridge across the one regime where
 only numerical relativity is honest.
 
 **Time mapping (design decision, owner-approved).** Near merger
-$f_{\rm GW}$ exceeds 100 Hz; at a 60 fps display any true-rate rendering of
-the orbit temporally aliases (Nyquist for visual rotation is 30 cycles/s).
-The animation therefore runs the *visuals* in slow motion (adjustable
-factor, with true-vs-displayed time shown), while the *audio chirp plays at
-the true rate*, started so it completes exactly at the visual merger — the
-sound is the physical timescale, the picture is a legible one, and the two
-are phase-locked to the same $\varphi(t)$.
+$f_{\rm GW}$ exceeds tens of Hz; at a 60 fps display any true-rate rendering
+of the orbit temporally aliases (Nyquist for visual rotation is 30 cycles/s).
+The animation therefore runs the *visuals* in slow motion (adjustable factor,
+with true-vs-displayed time shown). The real-strain strip is not slowed — it
+is a static plot of the detector's own timescale, with only the playhead
+mapped to the visual clock so it reaches $t = 0$ at the visual merger.
 
 ## 13. Remnant and ringdown
 

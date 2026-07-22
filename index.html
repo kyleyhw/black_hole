@@ -264,22 +264,6 @@
         line-height: 1.35;
         min-width: 150px;
       }
-      #chirpBar .cctl {
-        flex: 0 0 auto;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      #chirpBar label {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        color: var(--dim);
-      }
-      #chirpBar input[type="range"] {
-        width: 70px;
-        accent-color: var(--accent);
-      }
       #chirpHide {
         flex: 0 0 auto;
         width: 24px;
@@ -418,13 +402,7 @@
     <div id="chirpBar">
       <canvas id="chirpCanvas"></canvas>
       <div class="cinfo" id="chirpInfo">—</div>
-      <div class="cctl">
-        <label title="Boost the pitch by the event's audibility shift (as in LIGO's released audio)">
-          <input type="checkbox" id="chirpShift" checked /> boost
-        </label>
-        <label>vol <input type="range" id="chirpVol" min="0" max="1" step="0.05" value="0.6" /></label>
-      </div>
-      <button id="chirpHide" title="Hide the chirp bar">×</button>
+      <button id="chirpHide" title="Hide the chirp strip">×</button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

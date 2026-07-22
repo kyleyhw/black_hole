@@ -449,3 +449,11 @@ NR merger dynamics; visible GW metric perturbations; kicks; precessing spins (al
 ## Phase 18: Time-Dependent Ray Transport (§10, committed via /goal)
 
 88. [completed] Integrate (t, p_t) along rays with a 4th (temporal) FD gradient (retarded-metric transport: holes ride uniform-velocity worldlines c(t)=c₀+v·t replacing the frozen-metric snapshot); frozen-vs-retarded comparison toggle in the Merger panel; `RETARDED` shader variant; derivations §14; validation of the static limit + retardation-grows-with-speed (`e2e/reports/phase16.md`, suite #16). Report.
+
+## Phase 19: Merger Presentation Overhaul (owner request, 2026-07-22)
+
+Owner directive: make the merger read like the iconic SXS/LIGO GW150914 visualization ("too hard to see now"); remove all sound; replace the synthesized waveform strip with the REAL detection data.
+
+89. [completed] **Readable lensed Milky-Way backdrop.** Procedural (zero-asset) enhancement gated to merger mode via `uSkyRich`: a denser but dimmer starfield plus a warm galactic band + dust (3D value-noise fbm), so the two shadows and the lensed arcs read against a full sky. Camera reframed closer (radius ~1.15·sep+4, clamped [13,26]) so the two shadows are large and distinct. Disk-mode sky unchanged (uSkyRich=0).
+90. [completed] **Sound removed.** Deleted the WebAudio context/buffer/scheduling and the `synthesizeAudio`/`interpX`/`fGwAt` driver methods and the volume/pitch UI — the animation is silent.
+91. [completed] **Real-data chirp strip.** Embedded the actual GW150914 H1 observed strain (whitened + band-passed 35–350 Hz) with the released NR reconstruction overlaid (`src/gw150914_chirp.json`, GWOSC DOI 10.7935/K5MW2F23), plotted amplitude-vs-time with a playhead mapped to the visual merger. Shown for GW150914 (the reference detection); other events animate silently. e2e `phase15.cjs` rewritten: real data present, chirps (rising zero-crossing rate), strip draws, other-event hidden, no audio hook, hide paths. Docs (README, derivations §12, LEARN.binary) updated.

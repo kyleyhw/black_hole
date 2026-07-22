@@ -36,6 +36,7 @@ uniform vec4 uE1;            // w = t component. e0 = camera 4-velocity,
 uniform vec4 uE2;            // e1/e2/e3 = right/up/forward (derivations.md §8)
 uniform vec4 uE3;
 uniform int uSkyShift;       // apply g* = 1/q_t redshift to the starfield
+uniform float uSkyRich;      // 0 = sparse backdrop; 1 = dense Milky-Way sky (merger mode)
 uniform float uDiskSense;    // +1 prograde, -1 retrograde orbital flow
 uniform vec3 uDiskNormal;    // unit disk normal (tilted about y; z-hat at i=0)
 uniform vec3 uDiskE1;        // in-plane basis for the noise angle
@@ -528,6 +529,48 @@ vec3 starColor(float t) {
   return t < 0.5 ? mix(red, white, t * 2.0) : mix(white, blue, (t - 0.5) * 2.0);
 }
 
+// 3D trilinear value noise (from hash13) and a 4-octave fbm, for the diffuse
+// Milky-Way band and its dust. Available in every variant (unlike the disk's
+// cylinder noise, which is compiled out of BINARY).
+float vnoise3(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  vec3 u = f * f * (3.0 - 2.0 * f);
+  float n000 = hash13(i), n100 = hash13(i + vec3(1, 0, 0));
+  float n010 = hash13(i + vec3(0, 1, 0)), n110 = hash13(i + vec3(1, 1, 0));
+  float n001 = hash13(i + vec3(0, 0, 1)), n101 = hash13(i + vec3(1, 0, 1));
+  float n011 = hash13(i + vec3(0, 1, 1)), n111 = hash13(i + vec3(1, 1, 1));
+  return mix(mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y),
+             mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y), u.z);
+}
+float fbm3(vec3 p) {
+  float s = 0.0, a = 0.5;
+  for (int k = 0; k < 4; k++) { s += a * vnoise3(p); p *= 2.02; a *= 0.5; }
+  return s;
+}
+
+// Diffuse warm galactic band + dust — a Milky-Way backdrop that gives the
+// lensing something textured to warp (the SXS/LIGO merger look). Purely
+// aesthetic, exactly like the stars: the structure is invented (procedural,
+// zero-asset); only its gravitational deflection along the ray is exact.
+vec3 milkyWay(vec3 dir, float gstar) {
+  vec3 pole = normalize(vec3(-0.31, 0.82, 0.48));  // galactic north pole
+  float b = asin(clamp(dot(dir, pole), -1.0, 1.0)); // galactic latitude
+  // A DEFINED warm band (narrow, dim) — a stripe across a dark sky, not an
+  // all-over glow; the strong-lensing magnification near each shadow brightens
+  // it into the Einstein arcs, so the base level stays low on purpose.
+  float band = exp(-b * b * 13.0) * 0.28 + exp(-b * b * 80.0) * 0.42;
+  // Mottled clouds and darker dust lanes from fbm on the sphere.
+  float clouds = fbm3(dir * 5.0 + 11.0);
+  float lanes = smoothstep(0.28, 0.72, fbm3(dir * 2.3 + 4.0));
+  band *= (0.35 + 1.0 * clouds) * (1.0 - 0.7 * lanes);
+  // Very faint all-sky haze so deep sky is near-black, not pure void.
+  float haze = 0.015 * (0.5 + 0.5 * fbm3(dir * 8.0));
+  vec3 warm = vec3(0.58, 0.49, 0.41);
+  float beam4 = gstar * gstar * gstar * gstar;
+  return (warm * band + vec3(0.6, 0.62, 0.72) * haze) * beam4;
+}
+
 // gstar = 1/q_t: frequency ratio observed/emitted for stars at infinity
 // (derivations.md §9). Temperature scales by gstar (blackbody shape is
 // preserved); bolometric brightness by gstar^4.
@@ -539,12 +582,20 @@ vec3 starfield(vec3 dir, float gstar) {
   vec2 baseCell = floor(cellUv);
   float pixAngle = 2.0 * uTanHalfFov / uResolution.y;
 
+  // Merger mode (uSkyRich = 1) packs MORE but DIMMER stars: a richer field
+  // that still reads as a dark sky with distinct points (the per-star flux
+  // already peaks near white, so a lower gain keeps the field from washing to
+  // grey while the higher density fills it in). Normal disk mode (uSkyRich = 0)
+  // keeps the original sparse, dim backdrop untouched.
+  float density = STAR_DENSITY * (1.0 + 2.2 * uSkyRich);
+  float starGain = mix(1.0, 0.4, uSkyRich);
+
   vec3 col = vec3(0.0);
   for (int i = -1; i <= 1; i++) {
     for (int j = -1; j <= 1; j++) {
       vec2 cell = baseCell + vec2(float(i), float(j));
       vec3 seed = vec3(cell, face * 101.0);
-      if (hash13(seed) > STAR_DENSITY) continue;
+      if (hash13(seed) > density) continue;
       vec3 rnd = hash33(seed + 17.0);
       vec3 starDir = cubeUnproject(face, (cell + rnd.xy) / STAR_CELLS);
       float b = pow(1.0 - 0.97 * rnd.z, -0.6667);
@@ -556,9 +607,11 @@ vec3 starfield(vec3 dir, float gstar) {
       // Temperature parameter mapped to T_rel = 0.5 + t, shifted by gstar.
       float tShift = clamp((0.5 + hash13(seed + 41.0)) * gstar - 0.5, 0.0, 1.0);
       float beam4 = gstar * gstar * gstar * gstar;
-      col += fall * b * 0.3 * beam4 * starColor(tShift) / (STAR_SIZE * STAR_SIZE);
+      col += fall * b * 0.3 * starGain * beam4 * starColor(tShift) / (STAR_SIZE * STAR_SIZE);
     }
   }
+  // Diffuse Milky-Way band behind the point stars (merger mode only).
+  col += uSkyRich * milkyWay(dir, gstar);
   return col;
 }
 

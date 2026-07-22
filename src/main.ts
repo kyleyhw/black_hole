@@ -9,6 +9,7 @@ import {
 import { FreeFall } from "./geodesic";
 import { MergerDriver, type GwEvent } from "./merger";
 import gweventsRaw from "./gwevents.json";
+import chirpRaw from "./gw150914_chirp.json";
 import { createHqSession, webGpuSupported, type HqSession } from "./webgpu";
 import vertSrc from "./shaders/fullscreen.vert.glsl?raw";
 import sceneSrc from "./shaders/render.frag.glsl?raw";
@@ -49,6 +50,7 @@ const params: PanelParams = {
   binaryChi1: 0.7,
   binaryChi2: -0.3,
   retarded: false, // Phase 18: frozen-metric transport by default; toggle for retarded
+  skyRich: false, // dense Milky-Way backdrop; set true only when a merger event is selected
   masses: [
     { m: 1.0, pos: [0, -8, 0] },
     { m: 0.5, pos: [0, 8, 2] },
@@ -79,18 +81,18 @@ const uScene = uniforms(gl, sceneProg, [
   "uResolution", "uCamPos", "uCamRight", "uCamUp", "uCamForward", "uTanHalfFov",
   "uSpin", "uMaxSteps", "uDebugView",
   "uDiskOn", "uDiskInner", "uDiskOuter", "uBeaming", "uDiskGain", "uTime",
-  "uE0", "uE1", "uE2", "uE3", "uSkyShift",
+  "uE0", "uE1", "uE2", "uE3", "uSkyShift", "uSkyRich",
   "uDiskSense", "uDiskNormal", "uDiskE1", "uDiskE2",
 ]);
 const uWeak = uniforms(gl, weakProg, [
   "uResolution", "uCamPos", "uCamRight", "uCamUp", "uCamForward", "uTanHalfFov",
-  "uMaxSteps", "uDebugView", "uDiskOn",
+  "uMaxSteps", "uDebugView", "uDiskOn", "uSkyShift", "uSkyRich",
   "uNMasses", "uMassPos", "uMassM",
 ]);
 const BINARY_UNIFORMS = [
   "uResolution", "uCamPos", "uCamRight", "uCamUp", "uCamForward", "uTanHalfFov",
   "uSpin", "uMaxSteps", "uDebugView", "uDiskOn",
-  "uE0", "uE1", "uE2", "uE3", "uSkyShift",
+  "uE0", "uE1", "uE2", "uE3", "uSkyShift", "uSkyRich",
   "uB1Pos", "uB1M", "uB1A", "uB1Boost", "uB2Pos", "uB2M", "uB2A", "uB2Boost",
 ];
 const uBinary = uniforms(gl, binaryProg, BINARY_UNIFORMS);
@@ -280,70 +282,33 @@ const merger = {
   slowmo: 25, // visuals run 1/slowmo of physical rate (sec. 10.6: aliasing)
 };
 
-// --- Chirp audio (Phase 16): true-rate h(t) played once near the visual
-// merger, phase-locked to the same PN evolution driving the picture. WebAudio
-// is created lazily on the first user gesture (Play) to satisfy autoplay
-// policy. The buffer is (re)synthesized per event / pitch-shift choice.
-const audio = {
-  ctx: null as AudioContext | null,
-  gain: null as GainNode | null,
-  buffer: null as AudioBuffer | null, // current event's true-rate h(t)
-  samples: null as Float32Array | null, // same data, for the waveform canvas
-  rate: 44100,
-  shiftOn: true, // apply the event's audibility octave shift
-  volume: 0.6,
-  source: null as AudioBufferSourceNode | null,
-  scheduled: false, // the chirp has been fired for this playthrough
+// --- Real GW150914 chirp trace for the strip (no audio) -------------------
+// Amplitude vs time of the ACTUAL GW150914 detection: the H1 observed strain
+// (whitened, band-passed 35-350 Hz) with the released numerical-relativity
+// reconstruction overlaid, aligned so the merger sits at t = 0. This is real
+// LIGO Open Science Center data, not a synthesized model — the strip plots it
+// statically and runs a playhead across it, synced to the visual merger. See
+// src/gw150914_chirp.json (_provenance) for the exact processing and DOI.
+const CHIRP = chirpRaw as unknown as {
+  t0: number; t1: number; n: number;
+  observed: number[]; reconstruction: number[];
+  event: string; detector: string;
 };
-
-function ensureAudioCtx(): void {
-  if (audio.ctx) return;
-  const Ctor =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!Ctor) return; // no WebAudio: animation and waveform still work, silently
-  audio.ctx = new Ctor();
-  audio.rate = audio.ctx.sampleRate;
-  audio.gain = audio.ctx.createGain();
-  audio.gain.gain.value = audio.volume;
-  audio.gain.connect(audio.ctx.destination);
-}
-
-function rebuildAudioBuffer(): void {
-  if (!merger.driver) {
-    audio.buffer = null;
-    audio.samples = null;
-    return;
-  }
-  const shiftOct = audio.shiftOn ? merger.driver.event.audioShiftOct : 0;
-  audio.samples = merger.driver.synthesizeAudio(audio.rate, shiftOct);
-  if (audio.ctx) {
-    const buf = audio.ctx.createBuffer(1, audio.samples.length, audio.rate);
-    buf.getChannelData(0).set(audio.samples);
-    audio.buffer = buf;
-  }
-}
-
-function stopChirp(): void {
-  if (audio.source) {
-    try {
-      audio.source.stop();
-    } catch {
-      /* already stopped */
-    }
-    audio.source = null;
-  }
-  audio.scheduled = false;
+// The real trace only exists for GW150914 (the reference detection); other
+// events animate silently without the strip.
+function hasChirpData(): boolean {
+  return merger.driver !== null && merger.driver.event.name === CHIRP.event;
 }
 
 function mergerSelect(name: string | null): void {
-  stopChirp();
+  // The dense lensed Milky-Way backdrop is the merger look; keep the sparse
+  // sky for the static preview (name === null) so the M2 -> 0 parity anchor
+  // (binary vs single Kerr, same sky) is unaffected.
+  params.skyRich = name !== null;
   if (!name) {
     merger.driver = null;
     merger.playing = false;
     merger.tGeom = 0;
-    audio.buffer = null;
-    audio.samples = null;
     return;
   }
   const ev = GW_EVENTS.find((e) => e.name === name);
@@ -353,16 +318,14 @@ function mergerSelect(name: string | null): void {
   merger.playing = false;
   params.mode = "binary";
   chirpHiddenSelf = false; // re-selecting an event brings the bar back
-  // Cinematic per-event framing: a fixed 3/4 view from above the orbital
-  // plane (both holes visible through the whole inspiral, the ringdown
-  // shadow centered), but the pull-back scales with the event's initial
-  // separation — light/low-f_low systems (e.g. GW151226) begin far wider
-  // than heavy ones, so a single radius would either crop them or leave the
-  // heavy events as specks. radius ~ 1.6 sep + 8, clamped to a sane range.
+  // Cinematic per-event framing: a fixed 3/4 view above the orbital plane,
+  // pulled in close so the two shadows read large and clearly separated (the
+  // SXS/LIGO look). The pull-back scales with the event's initial separation
+  // so light/low-f_low systems (GW151226 starts wide) do not crop and heavy
+  // ones (GW190521) are not specks.
   camera.azimuth = 0.35;
-  camera.elevation = 0.5;
-  camera.radius = Math.min(34, Math.max(18, 1.6 * merger.driver.initialSeparation + 8));
-  rebuildAudioBuffer();
+  camera.elevation = 0.42;
+  camera.radius = Math.min(26, Math.max(13, 1.15 * merger.driver.initialSeparation + 4));
 }
 
 // Static-preview hole placement: barycentric on the y axis, M1 = 1 so all
@@ -424,22 +387,6 @@ function frame(now: number): void {
     merger.tGeom += dt / merger.slowmo / merger.driver.mTotalSec;
     const d = merger.driver;
     const tPhys = merger.tGeom * d.mTotalSec;
-    // Fire the true-rate chirp once, timed so its merger instant coincides
-    // with the visual merger: wall time until merger is (toMergerS - tPhys)
-    // x slowmo; when that drops to within toMergerS wall-seconds, start the
-    // buffer at the matching offset so it plays out at true rate.
-    if (!audio.scheduled && audio.buffer && audio.ctx && audio.gain) {
-      const wallToMerger = (d.toMergerS - tPhys) * merger.slowmo;
-      if (wallToMerger > 0 && wallToMerger <= d.toMergerS) {
-        const offset = d.toMergerS - wallToMerger; // ~0 at first crossing
-        const src = audio.ctx.createBufferSource();
-        src.buffer = audio.buffer;
-        src.connect(audio.gain);
-        src.start(0, Math.max(0, offset));
-        audio.source = src;
-        audio.scheduled = true;
-      }
-    }
     // End the animation when the ringdown tail has elapsed.
     if (tPhys > d.audioDurationS) merger.playing = false;
   }
@@ -589,6 +536,7 @@ function frame(now: number): void {
     gl.uniform4f(u.get("uE2") ?? null, ...packLeg(tetrad[2]));
     gl.uniform4f(u.get("uE3") ?? null, ...packLeg(tetrad[3]));
     gl.uniform1i(u.get("uSkyShift") ?? null, params.skyShift ? 1 : 0);
+    gl.uniform1f(u.get("uSkyRich") ?? null, params.skyRich ? 1.0 : 0.0);
     const [bh1, bh2] = binaryHoles();
     gl.uniform3f(u.get("uB1Pos") ?? null, ...bh1.center);
     gl.uniform1f(u.get("uB1M") ?? null, bh1.mass);
@@ -626,6 +574,7 @@ function frame(now: number): void {
   gl.uniform4f(uScene.get("uE2") ?? null, ...packLeg(tetrad[2]));
   gl.uniform4f(uScene.get("uE3") ?? null, ...packLeg(tetrad[3]));
   gl.uniform1i(uScene.get("uSkyShift") ?? null, params.skyShift ? 1 : 0);
+  gl.uniform1f(uScene.get("uSkyRich") ?? null, 0.0);
   gl.uniform1f(uScene.get("uDiskSense") ?? null, params.diskSense);
   // Disk tilted about the y-axis by diskIncl: normal, plus the in-plane
   // basis used for the noise angle.
@@ -697,8 +646,23 @@ function frame(now: number): void {
     const node = document.getElementById("mergerReadout");
     if (node) node.innerHTML = `${line1}<br>${line2}`;
     const info = document.getElementById("chirpInfo");
-    if (info) info.innerHTML = `${d.event.name}<br>${line2}`;
-    drawChirp(merger.tGeom * d.mTotalSec / d.audioDurationS);
+    if (info) {
+      info.innerHTML = hasChirpData()
+        ? `${d.event.name} · ${CHIRP.detector} strain (real)<br>${line2}`
+        : `${d.event.name}<br>${line2}`;
+    }
+    // Playhead across the real chirp: map the animation clock so the visual
+    // merger lands on the trace's t = 0. Inspiral+plunge sweep [0, mergerX];
+    // the ringdown tail sweeps [mergerX, 1].
+    const tPhys = merger.tGeom * d.mTotalSec;
+    const mergerX = (0 - CHIRP.t0) / (CHIRP.t1 - CHIRP.t0);
+    const ph =
+      tPhys <= d.toMergerS
+        ? (tPhys / d.toMergerS) * mergerX
+        : mergerX +
+          Math.min((tPhys - d.toMergerS) / Math.max(d.audioDurationS - d.toMergerS, 1e-3), 1) *
+            (1 - mergerX);
+    drawChirp(ph);
     updateChirpBarVisibility();
   }
 
@@ -904,12 +868,30 @@ function uiCollapsed(): boolean {
 }
 
 function updateChirpBarVisibility(): void {
-  const show = merger.driver !== null && !chirpHiddenSelf && !uiCollapsed();
+  const show = hasChirpData() && !chirpHiddenSelf && !uiCollapsed();
   chirpBar.classList.toggle("show", show);
 }
 
+// Draw one amplitude-vs-time line for a normalized [-1,1] trace across the
+// full canvas width (n samples -> w columns, linear resample).
+function drawTrace(
+  ctx: CanvasRenderingContext2D, data: number[], w: number, mid: number,
+  amp: number, style: string, lineWidth: number,
+): void {
+  ctx.strokeStyle = style;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  for (let px = 0; px < w; px++) {
+    const i = Math.min(data.length - 1, Math.round((px / (w - 1)) * (data.length - 1)));
+    const y = mid - (data[i] ?? 0) * amp;
+    if (px === 0) ctx.moveTo(px + 0.5, y);
+    else ctx.lineTo(px + 0.5, y);
+  }
+  ctx.stroke();
+}
+
 function drawChirp(playheadFrac: number): void {
-  if (!chirpBar.classList.contains("show") || !audio.samples) return;
+  if (!chirpBar.classList.contains("show")) return;
   const dpr = window.devicePixelRatio || 1;
   const w = Math.max(1, Math.round(chirpCanvas.clientWidth * dpr));
   const h = Math.max(1, Math.round(chirpCanvas.clientHeight * dpr));
@@ -920,25 +902,15 @@ function drawChirp(playheadFrac: number): void {
   const ctx = chirpCanvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, w, h);
-  const s = audio.samples;
   const mid = h / 2;
-  // Peak-per-column envelope of |h(t)| (min-max would clutter at this width).
-  ctx.strokeStyle = "rgba(127,180,255,0.85)";
-  ctx.lineWidth = Math.max(1, dpr);
-  ctx.beginPath();
-  for (let px = 0; px < w; px++) {
-    const i0 = Math.floor((px / w) * s.length);
-    const i1 = Math.max(i0 + 1, Math.floor(((px + 1) / w) * s.length));
-    let peak = 0;
-    for (let i = i0; i < i1 && i < s.length; i++) peak = Math.max(peak, Math.abs(s[i]!));
-    const y = peak * (mid - 2);
-    ctx.moveTo(px + 0.5, mid - y);
-    ctx.lineTo(px + 0.5, mid + y);
-  }
-  ctx.stroke();
-  // Playhead.
+  const amp = mid - 3 * dpr;
+  // Real GW150914: faint H1 observed strain behind the bright NR reconstruction.
+  drawTrace(ctx, CHIRP.observed, w, mid, amp * 0.92, "rgba(120,150,200,0.55)", Math.max(1, dpr));
+  drawTrace(ctx, CHIRP.reconstruction, w, mid, amp, "rgba(255,184,77,0.95)", Math.max(1.5, 1.6 * dpr));
+  // Playhead sweeping with the animation clock.
   const px = Math.round(Math.min(Math.max(playheadFrac, 0), 1) * (w - 1));
-  ctx.strokeStyle = "rgba(255,220,120,0.95)";
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = Math.max(1, dpr);
   ctx.beginPath();
   ctx.moveTo(px + 0.5, 0);
   ctx.lineTo(px + 0.5, h);
@@ -948,14 +920,6 @@ function drawChirp(playheadFrac: number): void {
 (document.getElementById("chirpHide") as HTMLButtonElement).addEventListener("click", () => {
   chirpHiddenSelf = true;
   updateChirpBarVisibility();
-});
-(document.getElementById("chirpVol") as HTMLInputElement).addEventListener("input", (e) => {
-  audio.volume = Number((e.target as HTMLInputElement).value);
-  if (audio.gain) audio.gain.gain.value = audio.volume;
-});
-(document.getElementById("chirpShift") as HTMLInputElement).addEventListener("change", (e) => {
-  audio.shiftOn = (e.target as HTMLInputElement).checked;
-  rebuildAudioBuffer();
 });
 
 requestAnimationFrame(loop);
@@ -995,13 +959,15 @@ declare global {
         state: () => import("./merger").MergerState | null;
         seek: (tGeom: number) => void;
         tMergerGeom: () => number | null;
-        audio: () => {
-          rate: number;
-          toMergerS: number;
-          fLow: number;
-          fQnm: number;
-          samples: number[];
-        } | null;
+        chirp: () => {
+          event: string;
+          n: number;
+          t0: number;
+          t1: number;
+          hasData: boolean;
+          observed: number[];
+          reconstruction: number[];
+        };
       };
     };
   }
@@ -1047,25 +1013,15 @@ window.__bh = {
     events: GW_EVENTS.map((e) => e.name),
     select: mergerSelect,
     setPlaying: (v: boolean): void => {
-      if (v && merger.driver) {
-        // Play is a user gesture: create the audio context now (autoplay
-        // policy) and build the buffer if it wasn't built yet.
-        ensureAudioCtx();
-        void audio.ctx?.resume();
-        if (!audio.buffer) rebuildAudioBuffer();
-        // A fresh play from the end (or after stop) rewinds and re-arms audio.
-        if (merger.tGeom * merger.driver.mTotalSec > merger.driver.audioDurationS) {
-          merger.tGeom = 0;
-        }
-        if (audio.scheduled) stopChirp();
-      } else {
-        stopChirp();
+      // A fresh play from the end (or after stop) rewinds to f_low.
+      if (v && merger.driver &&
+          merger.tGeom * merger.driver.mTotalSec > merger.driver.audioDurationS) {
+        merger.tGeom = 0;
       }
       merger.playing = v && merger.driver !== null;
     },
     restart: (): void => {
       merger.tGeom = 0;
-      stopChirp();
     },
     setSlowmo: (v: number): void => {
       merger.slowmo = Math.max(1, v);
@@ -1084,19 +1040,16 @@ window.__bh = {
     },
     tMergerGeom: (): number | null =>
       merger.driver ? merger.driver.toMergerS / merger.driver.mTotalSec : null,
-    /** Test hook: the synthesized true-rate chirp samples + metadata. */
-    audio: (): { rate: number; toMergerS: number; fLow: number; fQnm: number;
-      samples: number[] } | null => {
-      if (!merger.driver) return null;
-      const shiftOct = audio.shiftOn ? merger.driver.event.audioShiftOct : 0;
-      const s = merger.driver.synthesizeAudio(audio.rate, shiftOct);
-      return {
-        rate: audio.rate,
-        toMergerS: merger.driver.toMergerS,
-        fLow: merger.driver.event.fLow * Math.pow(2, shiftOct),
-        fQnm: merger.driver.fQnmHz * Math.pow(2, shiftOct),
-        samples: Array.from(s),
-      };
-    },
+    /** Test hook: the embedded real GW150914 chirp trace + whether it's shown. */
+    chirp: (): { event: string; n: number; t0: number; t1: number;
+      hasData: boolean; observed: number[]; reconstruction: number[] } => ({
+      event: CHIRP.event,
+      n: CHIRP.n,
+      t0: CHIRP.t0,
+      t1: CHIRP.t1,
+      hasData: hasChirpData(),
+      observed: CHIRP.observed,
+      reconstruction: CHIRP.reconstruction,
+    }),
   },
 };

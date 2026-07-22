@@ -119,8 +119,6 @@ export class MergerDriver {
   private readonly omegaIsco: number;
   private readonly phiIsco: number;
   private readonly drdtIsco: number; // d(separation)/dt at ISCO, for C1 blend
-  private readonly omegaCap: number; // dimensionless M*omega_orb at merger
-  private readonly tMergerGeom: number;
   /** (2,2,0) QNM frequency (Hz) and damping time (s) of the remnant. */
   readonly fQnmHz: number;
   readonly qnmTauS: number;
@@ -175,8 +173,6 @@ export class MergerDriver {
     this.plungeS = this.plungeGeom * this.mTotalSec;
     // dr/dt = d(1/x)/dt = -xdot/x^2 at ISCO (r = 1/x, Newtonian map).
     this.drdtIsco = -dxdt(X_ISCO, this.nu, beta) / (X_ISCO * X_ISCO);
-    this.omegaCap = Math.pow(2.2, -1.5); // Kepler rate at r = 2.2 M (light-ring-ish)
-    this.tMergerGeom = this.tIscoGeom + this.plungeGeom;
     // (2,2,0) QNM of the remnant (Berti-Cardoso-Will; derivations.md sec. 13).
     const mfSec = this.remnantM * this.mTotalSec;
     const wR = (1.5251 - 1.1568 * Math.pow(1 - this.remnantChi, 0.1292)) / mfSec;
@@ -279,84 +275,6 @@ export class MergerDriver {
       fGwHz: this.fQnmHz,
       tToMergerS: this.toMergerS - tGeom * this.mTotalSec,
     };
-  }
-
-  /** Linear interpolation of the PN parameter x at geometric time tGeom
-   * (clamped to the precomputed inspiral range). */
-  private interpX(tGeom: number): number {
-    if (tGeom <= 0) return this.xs[0]!;
-    let lo = 0;
-    let hi = this.ts.length - 1;
-    if (tGeom >= this.ts[hi]!) return this.xs[hi]!;
-    while (hi - lo > 1) {
-      const mid = (lo + hi) >> 1;
-      if (this.ts[mid]! <= tGeom) lo = mid;
-      else hi = mid;
-    }
-    const t0 = this.ts[lo]!;
-    const t1 = this.ts[hi]!;
-    const w = t1 > t0 ? (tGeom - t0) / (t1 - t0) : 0;
-    return this.xs[lo]! + w * (this.xs[hi]! - this.xs[lo]!);
-  }
-
-  /** Quadrupole GW frequency (Hz) at geometric time tGeom, across all phases
-   * (the continuous frequency track the chirp audio integrates). */
-  private fGwAt(tGeom: number): number {
-    let omega: number;
-    if (tGeom < this.tIscoGeom) {
-      omega = Math.pow(this.interpX(tGeom), 1.5);
-    } else if (tGeom < this.tMergerGeom) {
-      const w = smooth01((tGeom - this.tIscoGeom) / this.plungeGeom);
-      omega = this.omegaIsco + (this.omegaCap - this.omegaIsco) * w;
-    } else {
-      return this.fQnmHz;
-    }
-    return omega / (Math.PI * this.mTotalSec);
-  }
-
-  /**
-   * Synthesize the true-rate gravitational-wave strain h(t) as a mono audio
-   * buffer (derivations.md sec. 12). The GW phase is accumulated from the
-   * SAME frequency track that drives the animation, so audio and picture are
-   * phase-locked; shiftOct raises every frequency by 2^shiftOct octaves
-   * (pitch shift preserving duration, as LIGO's released audio does), applied
-   * as a multiplier on the phase so there are no discontinuities. The
-   * envelope follows the restricted-PN amplitude f^(2/3) into the merger,
-   * then the QNM exponential decay; the whole buffer is peak-normalized.
-   */
-  synthesizeAudio(sampleRate: number, shiftOct: number): Float32Array {
-    const shift = Math.pow(2, shiftOct);
-    const n = Math.max(1, Math.ceil(this.audioDurationS * sampleRate));
-    const out = new Float32Array(n);
-    const env = new Float32Array(n);
-    const dt = 1 / sampleRate;
-    let psi = 0;
-    let mergerEnv = 1e-9;
-    for (let i = 0; i < n; i++) {
-      const t = i * dt;
-      let f: number;
-      let e: number;
-      if (t < this.toMergerS) {
-        f = this.fGwAt(t / this.mTotalSec);
-        e = Math.pow(Math.max(f, 1), 2 / 3);
-        mergerEnv = e;
-      } else {
-        f = this.fQnmHz;
-        e = mergerEnv * Math.exp(-(t - this.toMergerS) / this.qnmTauS);
-      }
-      psi += 2 * Math.PI * f * shift * dt;
-      out[i] = Math.cos(psi);
-      env[i] = e;
-    }
-    let mx = 0;
-    for (let i = 0; i < n; i++) {
-      const v = (out[i] as number) * (env[i] as number);
-      out[i] = v;
-      mx = Math.max(mx, Math.abs(v));
-    }
-    const g = mx > 0 ? 0.9 / mx : 0;
-    for (let i = 0; i < n; i++) out[i] = (out[i] as number) * g;
-    return out;
   }
 
   private holesAt(

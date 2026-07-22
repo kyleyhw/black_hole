@@ -29,6 +29,7 @@ export interface PanelParams {
   binaryChi1: number; // binary preview: aligned spin of the primary
   binaryChi2: number; // binary preview: aligned spin of the secondary
   retarded: boolean; // merger: integrate (t, p_t) with worldline-advanced holes
+  skyRich: boolean; // merger: dense lensed Milky-Way backdrop (set when an event is selected)
   masses: { m: number; pos: [number, number, number] }[];
 }
 
@@ -392,14 +393,16 @@ const LEARN = {
       with frequency and damping time from the Berti\u2013Cardoso\u2013Will fits for
       the final mass and spin. Only the loudest mode is kept; the true signal
       is a sum over overtones.</p>
-      <p><b>5. Time and sound.</b> Near merger the orbital frequency exceeds
-      100 Hz \u2014 unrepresentable at 60 fps \u2014 so the picture runs in
-      <b>slow motion</b> (default \u00d725) while the chirp plays at
-      <b>true rate</b>, fired once so its merger instant lands on the visual
-      merger. The audio is synthesized from the <b>same</b> phase track that
-      drives the orbit (h \u221d M^{5/3} f^{2/3} cos 2\u03c6), so sound and picture
-      are phase-locked by construction. The optional pitch shift is a labeled
-      cosmetic octave transposition, as in LIGO's own released audio.</p>
+      <p><b>5. Time and backdrop.</b> Near merger the orbital frequency exceeds
+      60 Hz \u2014 unrepresentable at 60 fps \u2014 so the picture runs in
+      <b>slow motion</b> (default \u00d725). The Milky-Way background is a
+      procedural (zero-asset) starfield and galactic band: its gravitational
+      <i>deflection</i> along each ray is exact, but <i>where</i> a star sits is
+      invented, exactly as in the single-hole sky. The strip along the bottom is
+      the honest exception \u2014 it is the <b>real GW150914 strain</b> (H1
+      observed, whitened + band-passed, with the released numerical-relativity
+      reconstruction overlaid), plotted as amplitude vs time with a playhead run
+      to the visual merger. No sound.</p>
       <p><b>Transport caveat.</b> Because the metric is now time-dependent,
       p_t is no longer exactly conserved. Rendering uses the <b>frozen-metric</b>
       (per-frame snapshot) approximation \u2014 standard for real-time
