@@ -402,10 +402,14 @@ function frame(now: number): void {
     if (!alive) camera.reset();
   }
   // Idle cinematic drift (see above): only when enabled, at rest, and not
-  // manipulating, free-falling, or dragging a mass.
+  // manipulating, free-falling, or dragging a mass. Off in merger mode: the
+  // orbiting holes already supply the motion, and against the dense lensed
+  // sky even 0.003 rad/s slides every sub-pixel star across pixel boundaries,
+  // so the whole background visibly crawls when the user isn't touching it.
   const testMode = (window as unknown as { __bhTest?: boolean }).__bhTest;
   if (
     params.autoOrbit && !testMode && !freefall.active && !massDrag &&
+    params.mode !== "binary" &&
     !camera.isManipulating && camera.idleSeconds() > IDLE_ORBIT_DELAY
   ) {
     camera.azimuth += IDLE_ORBIT_RATE * dt;

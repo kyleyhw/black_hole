@@ -588,7 +588,13 @@ vec3 starfield(vec3 dir, float gstar) {
   // grey while the higher density fills it in). Normal disk mode (uSkyRich = 0)
   // keeps the original sparse, dim backdrop untouched.
   float density = STAR_DENSITY * (1.0 + 2.2 * uSkyRich);
-  float starGain = mix(1.0, 0.4, uSkyRich);
+  float starGain = mix(1.0, 1.1, uSkyRich);
+  // Rich mode widens the point-spread footprint to ~a pixel. Sub-pixel stars
+  // scintillate under ANY camera rotation (each slides across a pixel
+  // boundary and pops), which on a dense field reads as the whole sky
+  // shimmering; a >= 1 px footprint anti-aliases smoothly. Flux is conserved
+  // by the 1/size^2 below, so the sky's total brightness is unchanged.
+  float starSize = mix(STAR_SIZE, 0.9, uSkyRich);
 
   vec3 col = vec3(0.0);
   for (int i = -1; i <= 1; i++) {
@@ -600,14 +606,14 @@ vec3 starfield(vec3 dir, float gstar) {
       vec3 starDir = cubeUnproject(face, (cell + rnd.xy) / STAR_CELLS);
       float b = pow(1.0 - 0.97 * rnd.z, -0.6667);
       float ang = acos(clamp(dot(dir, starDir), -1.0, 1.0));
-      float radius = pixAngle * (0.5 + 0.35 * b) * STAR_SIZE;
+      float radius = pixAngle * (0.5 + 0.35 * b) * starSize;
       float fall = 1.0 - smoothstep(0.0, radius, ang);
       // 0.3 keeps all but the brightest ~5% of stars below saturation, so
       // the sky reads as a backdrop rather than competing with the disk.
       // Temperature parameter mapped to T_rel = 0.5 + t, shifted by gstar.
       float tShift = clamp((0.5 + hash13(seed + 41.0)) * gstar - 0.5, 0.0, 1.0);
       float beam4 = gstar * gstar * gstar * gstar;
-      col += fall * b * 0.3 * starGain * beam4 * starColor(tShift) / (STAR_SIZE * STAR_SIZE);
+      col += fall * b * 0.3 * starGain * beam4 * starColor(tShift) / (starSize * starSize);
     }
   }
   // Diffuse Milky-Way band behind the point stars (merger mode only).
