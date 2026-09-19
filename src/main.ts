@@ -237,40 +237,14 @@ const IDLE_ORBIT_RATE = 0.003125; // rad/s — ~34 min per revolution, barely pe
 for (const ev of ["pointerdown", "pointerup", "wheel", "touchstart", "touchend", "keydown"])
   window.addEventListener(ev, () => camera.markInteraction(), { capture: true, passive: true });
 
-// Physical moving-observer camera: the interactive orbit is treated as a real
-// observer worldline, so its coordinate velocity drives aberration and Doppler
-// via the tetrad's e0. A hand-drag's raw coordinate speed is huge (measured
-// 3–20 M/s ≡ 3–20 c at r = 18 M), so the drag→velocity mapping must be shaped
-// or the aberration breaks. Per-frame instrumentation of the naive mapping
-// showed three failure modes: binary saturation (any touch pegged the cap),
-// one-frame snaps at drag start and release (~0.5 c jumps), and a sawtooth at
-// the pointer-event cadence. The pipeline below addresses each:
-//  - sliding-window position derivative (CAM_WINDOW_S): cadence-independent,
-//    and drains smoothly to zero after motion stops. The window must exceed
-//    the slowest real pointer cadence (~0.2 s for a slow hand plus event
-//    latency) or single pointer steps spike-and-drain as a sawtooth;
-//  - time-constant EMA (CAM_TAU_S, k = 1 − exp(−dt/τ)): fps-independent
-//    smoothing, no single-frame jumps;
-//  - estimation stays live for CAM_ACTIVE_S after the last user input, so the
-//    velocity decays through the release coast instead of snapping to zero;
-//  - tanh map with CAM_VEL_REF chosen INSIDE the real drag-speed range, so a
-//    slow drag gets mild aberration and only a fast one approaches the cap;
-//  - programmatic camera writes (tests, presets, resets) are not motion: they
-//    are gated out by the user-input recency check, and any one-frame jump
-//    larger than CAM_TELEPORT_M clears the estimator entirely. The teleport
-//    check is skipped while the pointer is actually down — batched pointer
-//    events legitimately move several M per frame during a drag, and only a
-//    programmatic write can teleport the camera mid-gesture.
-const CAM_WINDOW_S = 0.32; // sliding window for the position derivative (s)
-const CAM_TAU_S = 0.15; // EMA time constant (s)
-const CAM_VEL_MAX = 0.25; // asymptotic speed cap (units of c): max aberration ~14°
-const CAM_VEL_REF = 10.0; // M/s at which the tanh map reaches tanh(1) ≈ 76% of cap
-const CAM_ACTIVE_S = 0.6; // seconds after the last user input the estimator runs
-const CAM_TELEPORT_M = 1.5; // one-frame |Δx| above this is a set/reset, not motion
-const CAM_REST_SPEED = 0.05; // raw speeds below this (M/s) are rest jitter → static
-let camTrail: { t: number; p: [number, number, number] }[] = [];
-let camVelEma: [number, number, number] = [0, 0, 0];
-let lastCamSpeed = 0; // |mapped velocity| last frame (units of c), exposed for tests
+// Interactive orbit camera = a STATIC observer. A drag moves the camera
+// between frames but is NOT treated as an observer worldline, so no
+// aberration shifts the view: the hole stays dead-center under the cursor.
+// (An earlier design mapped drag velocity into the tetrad's e0 — physically a
+// moving observer — but its aberration slid the shadow off-center during every
+// drag; removed at the owner's direction. `movingObserver` remains in
+// tetrad.ts for the physics diagnostic `centerQtMoving`; the free-fall camera
+// uses its own integrated geodesic 4-velocity.)
 
 // --- Merger animation (Phase 15): PN-driven binary with the chirp clock ---
 const GW_EVENTS: readonly GwEvent[] =
@@ -425,56 +399,10 @@ function frame(now: number): void {
   let u4: Vec4;
   if (freefall.active) {
     u4 = freefall.fourVelocity();
-    camTrail = [];
-    camVelEma = [0, 0, 0];
-    lastCamSpeed = 0;
   } else {
-    // Drag → velocity estimation (see the constant block above for rationale).
-    const tSec = now / 1000;
-    const userActive = camera.isManipulating || camera.idleSeconds() < CAM_ACTIVE_S;
-    const tail = camTrail[camTrail.length - 1];
-    const jumped = !camera.isManipulating && tail !== undefined &&
-      Math.hypot(b.pos[0] - tail.p[0], b.pos[1] - tail.p[1], b.pos[2] - tail.p[2]) >
-        CAM_TELEPORT_M;
-    if (!userActive || jumped) {
-      camTrail = [];
-      camVelEma = [0, 0, 0];
-    }
-    if (dt > 1e-4) camTrail.push({ t: tSec, p: [b.pos[0], b.pos[1], b.pos[2]] });
-    // Evict old samples but always KEEP one sample at or beyond the window
-    // edge (evict only while the runner-up is also old): if the frame period
-    // ever exceeds the window (slow devices), the derivative then spans the
-    // last two frames instead of silently having no pair to difference.
-    let runnerUp = camTrail[1];
-    while (runnerUp !== undefined && runnerUp.t <= tSec - CAM_WINDOW_S) {
-      camTrail.shift();
-      runnerUp = camTrail[1];
-    }
-    const head = camTrail[0];
-    const last = camTrail[camTrail.length - 1];
-    let vraw: [number, number, number] = [0, 0, 0];
-    if (head !== undefined && last !== undefined && last.t - head.t > 0.02) {
-      const span = last.t - head.t;
-      vraw = [
-        (last.p[0] - head.p[0]) / span,
-        (last.p[1] - head.p[1]) / span,
-        (last.p[2] - head.p[2]) / span,
-      ];
-    }
-    const k = 1 - Math.exp(-dt / CAM_TAU_S);
-    camVelEma = [
-      camVelEma[0] + k * (vraw[0] - camVelEma[0]),
-      camVelEma[1] + k * (vraw[1] - camVelEma[1]),
-      camVelEma[2] + k * (vraw[2] - camVelEma[2]),
-    ];
-    const speed = Math.hypot(camVelEma[0], camVelEma[1], camVelEma[2]);
-    let vUsed: [number, number, number] = [0, 0, 0];
-    if (speed > CAM_REST_SPEED) {
-      const scale = (CAM_VEL_MAX * Math.tanh(speed / CAM_VEL_REF)) / speed;
-      vUsed = [camVelEma[0] * scale, camVelEma[1] * scale, camVelEma[2] * scale];
-    }
-    lastCamSpeed = Math.hypot(vUsed[0], vUsed[1], vUsed[2]);
-    u4 = movingObserver(b.pos, vUsed, params.spin);
+    // Static observer at the camera position (see the note above): dragging
+    // never aberrates the view, so the hole stays centered.
+    u4 = staticObserver(b.pos, params.spin);
   }
   // Binary mode builds its tetrad under the superposed metric with a static
   // observer (the moving-observer camera uses the single-Kerr metric and is
@@ -1003,7 +931,7 @@ window.__bh = {
     const lq = q[0] + m.l[0] * q[1] + m.l[1] * q[2] + m.l[2] * q[3];
     return -q[0] + m.f * lq;
   },
-  camSpeed: (): number => lastCamSpeed,
+  camSpeed: (): number => 0, // interactive drag is a static observer: never aberrates
   /** Tooling seam: render one frame synchronously and read the WebGL canvas
    * back as a PNG data URL (preserveDrawingBuffer is off, so the render and
    * the read must share a task — same pattern as screenshot()). Used to

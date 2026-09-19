@@ -148,20 +148,16 @@ Since Phase 8 the camera is a proper **tetrad camera**: rays are
 initialized in an orthonormal frame carried by the observer, so pixels
 measure proper local angles, aberration is exact, and textbook apparent-
 angle formulas apply directly (verified to 0.006% on the Schwarzschild
-shadow). The observer 4-velocity e₀ carried by that frame is: the
-integrated geodesic velocity while **free-falling**; and, while **orbiting
-interactively**, a *moving observer* whose velocity is the camera's own
-finite-differenced coordinate motion (derivations.md §8). So dragging the
-view is a genuine observer worldline — it exhibits aberration and Doppler
-while moving and reduces to the static observer exactly at rest. Because a
-free interactive drag is superluminal in coordinate units (3–20 c measured),
-the velocity estimate is shaped: a 0.32 s sliding-window derivative bridges
-the pointer-event cadence, a time-constant EMA (τ = 0.15 s) makes smoothing
-fps-independent, the estimate stays live briefly after release so it decays
-through the coast instead of snapping, and the magnitude maps through
-V_max·tanh(|v|/V_ref) with V_max = 0.25 c, V_ref = 10 M/s — graded, bounded
-aberration (≤ ~14° at screen center), smooth in and out (derivations.md §8,
-which also records the measured failure modes this design removes). The
+shadow). The observer 4-velocity e₀ carried by that frame is the integrated
+geodesic velocity while **free-falling**, and the **static observer** at the
+camera position while **orbiting interactively**. Dragging is therefore *not*
+treated as an observer worldline: it moves the camera between frames but
+never aberrates the view, so the hole stays centered under the cursor. (An
+earlier design mapped the drag's finite-differenced coordinate velocity into
+e₀ as a physical moving observer — real aberration and Doppler while
+dragging — but that aberration slid the shadow off-center during every drag
+and was removed at the owner's direction; the `movingObserver` tetrad remains
+for the physics diagnostic that pins it to the static observer at v = 0.) The
 starfield is
 red/blueshifted per pixel by g\* = 1/q_t (toggleable). The earlier
 coordinate-covector camera and its distinct angle convention are derived

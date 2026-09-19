@@ -298,18 +298,16 @@ const LEARN = {
   },
   camera: {
     title: "Cameras and free fall",
-    html: `<p>The orbit camera is a genuine <b>observer worldline</b>: while
-      you drag, it is a moving observer whose velocity is its own motion, so
-      you see real aberration and Doppler; the instant you let go it is a
-      "static observer" (which only exists outside the ergosphere). Rays are
-      built in the camera's own orthonormal frame (a tetrad), so angles,
-      aberration, and the sky's red/blueshift are exactly what that observer
-      would measure. A free drag is superluminal in coordinate units, so the
-      drag speed is mapped to a bounded sub-luminal velocity (smoothly, only
-      while you are dragging) — you get graded aberration and Doppler rather
-      than a light-speed lurch, and the view is exactly static at rest.
+    html: `<p>The orbit camera is a <b>static observer</b> at wherever you put
+      it: dragging moves the camera between frames but is not treated as an
+      observer worldline, so it never aberrates the view and the hole stays
+      centered under your cursor. Rays are built in the camera's own
+      orthonormal frame (a tetrad), so angles, lensing, and the sky's
+      red/blueshift are exactly what that observer would measure (a static
+      observer only exists outside the ergosphere).
       <b>Release</b> drops the camera onto a timelike geodesic: it falls
-      freely, and at a &gt; 0 frame dragging visibly swings it azimuthally
+      freely — now a genuinely moving observer, with real aberration — and at
+      a &gt; 0 frame dragging visibly swings it azimuthally
       even though it started at rest. Stop the fall any time, or let it
       plunge to near the horizon and reset. When you leave it alone,
       <b>auto-orbit</b> eases the camera into a slow drift so the shadow's

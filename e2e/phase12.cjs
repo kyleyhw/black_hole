@@ -108,12 +108,13 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
       () => !document.getElementById("panel").classList.contains("hidden"),
     );
 
-    // --- 5b. Physical camera: a real drag stays bounded sub-luminal ---
-    // Regression for the moving-observer camera: a live pointer drag must
-    // produce a smooth, sub-luminal mapped velocity (bounded aberration), be
-    // exactly static when not dragging, and NOT strobe. Before the fix the raw
-    // finite-difference velocity was superluminal (clamped to 0.995c) and
-    // flickered on/off between frames — this asserts neither happens.
+    // --- 5b. Interactive drag is a STATIC observer: dragging never aberrates ---
+    // A drag moves the camera but is NOT an observer worldline. Two
+    // assertions: the mapped observer speed is exactly 0 at rest, throughout a
+    // real pointer drag, and after release; and the frame rendered mid-drag is
+    // pixel-identical to a static render at the same camera pose (see the
+    // contract note below). The retired moving-observer design aberrated the
+    // view with the drag velocity, sliding the shadow off-center on every drag.
     await page.evaluate(() => {
       const c = window.__bh.camera;
       c.azimuth = 0;
@@ -125,45 +126,68 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
     const dragHide = await page.addStyleTag({
       content: "#panel,#fps,#footer,#panelToggle{display:none !important}",
     });
-    // The velocity is a WALL-CLOCK quantity, so the gesture must be paced by
-    // wall clock, not by rendered frames (settleFrames pacing stretches the
-    // same pixel sweep over however slow the software renderer is, and the
-    // estimator then correctly reports a nearly-static camera). Lighten the
-    // render so the frame rate approximates real hardware, and pace with
-    // timeouts like a hand does.
     await page.evaluate(() => {
       window.__bh.params.maxSteps = 150;
       window.__bh.params.resolutionScale = 0.25;
+      window.__bh.params.diskOn = false; // no disk clock => frames comparable
     });
     await settleFrames(page, 4);
+    // Contract: what you see mid-drag is EXACTLY what a static render at the
+    // same camera pose shows — dragging changes the pose, never the observer.
+    // (The retired moving-observer design made these two frames differ by its
+    // aberration.) Sky-independent and deterministic: capture a frame mid-
+    // gesture, record the pose it rendered at, then after release re-render
+    // statically at that pose and compare pixels. The disk is off so no
+    // time-varying input (disk clock) can separate the two frames.
+    const capture = async () =>
+      decodePng(Buffer.from((await page.evaluate(() => window.__bh.capture())).split(",")[1], "base64"));
     const dragRestSpeed = await page.evaluate(() => window.__bh.camSpeed());
     await page.mouse.move(160, 120);
     await page.mouse.down();
     const dragSpeeds = [];
+    let midImg = null;
+    let midPose = null;
     for (let i = 1; i <= 25; i++) {
       await page.mouse.move(160 + i * 8, 120);
       await page.waitForTimeout(15);
       dragSpeeds.push(await page.evaluate(() => window.__bh.camSpeed()));
+      if (i === 13) { // sample mid-gesture: the image and the pose it rendered at
+        midImg = await capture();
+        midPose = await page.evaluate(() => {
+          const c = window.__bh.camera;
+          return { azimuth: c.azimuth, elevation: c.elevation, radius: c.radius };
+        });
+      }
     }
     await page.mouse.up();
-    await page.waitForTimeout(900); // decay: window drains + EMA tail
+    await page.waitForTimeout(300);
     const dragAfterSpeed = await page.evaluate(() => window.__bh.camSpeed());
+    // Static re-render at the EXACT mid-drag pose. The orbit camera's inertial
+    // coast (velAz * e^(-6t)) is still decaying after release and capture()'s
+    // own update(dt) would nudge the pose by it (~1e-4 rad, a sub-pixel star
+    // shift that flips a few % of pixels) — so zero the velocity first via
+    // reset(), then set the pose. Mid-drag the same update() returned early
+    // (dragging), so that frame was rendered at exactly this pose too.
+    await page.evaluate((p) => {
+      const c = window.__bh.camera;
+      c.reset(); // zeroes velAz/velEl (also resets pose; overwritten next)
+      c.azimuth = p.azimuth; c.elevation = p.elevation; c.radius = p.radius;
+    }, midPose);
+    const refImg = await capture();
+    const dragViewDiff = diffFrac(midImg, refImg, 12);
     await page.evaluate(() => {
       window.__bh.params.maxSteps = 250;
       window.__bh.params.resolutionScale = 0.5;
+      window.__bh.params.diskOn = true;
     });
     await dragHide.evaluate((s) => s.remove());
     const dragMax = Math.max(...dragSpeeds);
-    const dragMoved = dragSpeeds.some((s) => s > 0.02); // aberration was actually active
-    // Smoothness invariant: NO single-frame speed jump anywhere in the gesture
-    // (this is the class of bug that shipped twice: 0→cap snaps at drag start,
-    // cap→0 at release, and sawtooth at the pointer cadence all violate it).
     let dragMaxJump = 0;
     for (let i = 1; i < dragSpeeds.length; i++)
       dragMaxJump = Math.max(dragMaxJump, Math.abs(dragSpeeds[i] - dragSpeeds[i - 1]));
     const cameraDragOk =
-      dragRestSpeed === 0 && dragMax < 0.5 && dragMoved && dragMaxJump < 0.15 &&
-      dragAfterSpeed < 0.02;
+      dragRestSpeed === 0 && dragMax === 0 && dragMaxJump === 0 && dragAfterSpeed === 0 &&
+      dragViewDiff < 0.01;
 
     // --- 6. Cinematic idle auto-orbit ---
     // Lift the test freeze; the page loaded > 4 s ago and the last click was
@@ -208,6 +232,7 @@ const { startPreview, launchPage, settleFrames, decodePng, diffFrac } = require(
       camera_drag_max_speed: dragMax,
       camera_drag_max_frame_jump: dragMaxJump,
       camera_drag_after_speed: dragAfterSpeed,
+      camera_drag_view_vs_static_diff: +dragViewDiff.toFixed(4),
       camera_drag_ok: cameraDragOk,
       autoorbit_drift_rad: drift,
       autoorbit_froze: froze,
