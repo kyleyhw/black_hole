@@ -16,3 +16,6 @@ __pycache__/
 node_modules/
 dist/
 *.local
+
+# agent-evolve local backend state (run artifacts)
+evolve-state/

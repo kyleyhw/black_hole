@@ -878,6 +878,8 @@ declare global {
       camSpeed: () => number;
       /** Tooling: render one frame and read the canvas as a PNG data URL. */
       capture: () => string;
+      /** Tooling: wall ms for one full frame, completion forced. */
+      bench: () => number;
       /** Merger animation control (Phase 15). */
       merger: {
         events: readonly string[];
@@ -904,6 +906,7 @@ declare global {
     };
   }
 }
+const benchPixel = new Uint8Array(4);
 window.__bh = {
   camera,
   params,
@@ -940,6 +943,18 @@ window.__bh = {
   capture: (): string => {
     frame(performance.now());
     return canvas.toDataURL("image/png");
+  },
+  /** Tooling seam: time ONE full synchronous frame (every pass). Completion
+   * is forced with a 1-pixel readPixels — a true pipeline barrier. (gl.finish
+   * was measured returning at command-buffer flush, ~0.6 ms, while the real
+   * SwiftShader work is only paid on readback; a readback is the honest sync.)
+   * Used by bench/bench.cjs. */
+  bench: (): number => {
+    const t0 = performance.now();
+    frame(performance.now());
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, benchPixel);
+    return performance.now() - t0;
   },
   merger: {
     events: GW_EVENTS.map((e) => e.name),
