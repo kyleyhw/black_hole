@@ -9,7 +9,7 @@ of the computation changed.
 
 | | frame_ms | vs anchor |
 |---|---|---|
-| anchor (`8d34f1a`) | 341.6 | — |
+| anchor (`a84379f`) | 341.6 | — |
 | winner, as applied to this branch | **67.6** | **−80.2%** |
 
 The merger frame, which the metric never times, went from 432.6 ms to 350.7 ms (−19%) as a
