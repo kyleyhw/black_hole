@@ -3,11 +3,13 @@
 // Kerr black hole ray tracer — main fragment shader.
 //
 // All physics happens here: null geodesics of the Kerr metric in Kerr-Schild
-// (Cartesian) coordinates, integrated as Hamiltonian flow with RK4 and
-// central-difference gradients. Derivations for every expression are in
-// docs/derivations.md; section numbers below refer to it.
+// (Cartesian) coordinates, integrated as Hamiltonian flow with RK4; the
+// force -dH/dx is closed-form for plain-Kerr rays that stay clear of the
+// photon shell and a central difference otherwise (see R_FD_KERR).
+// Derivations for every expression are in docs/derivations.md; section
+// numbers below refer to it.
 //
-// Sections: METRIC / INTEGRATOR / TERMINATION / STARFIELD / DEBUG / MAIN
+// Sections: METRIC / INTEGRATOR / TERMINATION / STARFIELD / DEBUG / TRACE / MAIN
 //
 // highp is mandatory: mediump silently destroys the integration.
 // ============================================================================
@@ -88,6 +90,19 @@ uniform mat4 uB2Boost;
 const float R_ESCAPE = 200.0;  // escape radius (M); camera max is 60 M
 const int HARD_CAP = 1024;     // absolute loop bound (driver-safe)
 
+// Plain-Kerr force evaluation: rays that never come inside this radius (M)
+// use the closed-form -dH/dx (rhsKerrAnalytic); rays that do keep the §5
+// central difference (rhs) for their whole path. Orbits through the photon
+// shell (r_ph <= 4 M for every a < M) are exponentially unstable (Lyapunov
+// growth ~e^pi per orbit), so ANY change in the force at the f32 roundoff
+// level — even a strictly more accurate one — is amplified into visible
+// photon-ring differences; a ray whose pericenter lies beyond the shell
+// responds only linearly, and there the analytic force is both cheaper and
+// ~100x closer to the exact derivative than the difference quotient. Set
+// just beyond the outermost photon orbit. The choice is made once per ray
+// from its constants of motion (kerrEntersShell), never mid-flight.
+const float R_FD_KERR = 5.0;
+
 // ============================================================================
 // SECTION: METRIC — Kerr-Schild form (derivations.md §1–2)
 //   g_munu = eta_munu + f l_mu l_nu ;  g^munu = eta^munu - f l^mu l^nu
@@ -110,6 +125,49 @@ void metricTerms(vec3 x, float a, out float f, out vec3 l) {
   f = 2.0 * r2 * r / max(r2 * r2 + a * a * x.z * x.z, 1e-12);
   float ra2 = r2 + a * a;
   l = vec3((r * x.x + a * x.y) / ra2, (r * x.y - a * x.x) / ra2, x.z / r);
+}
+
+// Does this ray ever reach r < R_FD_KERR? Decided from the constants of
+// motion in KS coordinates (§3): E = -pt (pt is the COVARIANT p_t, and the
+// conserved energy is E = -p_t; the sign is NOT free — the radial potential
+// below is invariant only under flipping E and L_z TOGETHER, i.e. p -> -p,
+// because the cross term a E L_z changes sign when E alone flips, which
+// would evaluate R for the ray's mirror image in L_z, i.e. for spin -a),
+// L_z = x p_y - y p_x (d/dphi =
+// x d/dy - y d/dx is the axial Killing vector in KS Cartesian coordinates),
+// and Carter's Q from p_theta = cot(theta) (x p_x + y p_y) - r sin(theta) p_z
+// (theta is the same coordinate in KS and Boyer-Lindquist, x + i y =
+// (r + i a) sin(theta) e^{i phi}). The Kerr radial potential
+//   R(r) = ((r^2 + a^2) E - a L_z)^2 - Delta ((L_z - a E)^2 + Q)
+// is negative between a ray's turning point and the shell, so R(R_FD_KERR) < 0
+// means the pericenter lies beyond R_FD_KERR. Outbound rays beyond the shell
+// never turn back (there are no bound photon orbits outside it), and a ray
+// starting inside R_FD_KERR always differences. The sin^2 floor only matters
+// for a camera exactly on the spin axis, where it can mis-classify a ray:
+// that changes which evaluation of the same force is used, not the physics.
+bool kerrEntersShell(vec3 x, vec3 p, float pt, float a) {
+  float r = ksRadius(x, a);
+  if (r <= R_FD_KERR) return true;
+  float f;
+  vec3 l;
+  metricTerms(x, a, f, l);
+  vec3 v = p - f * (dot(l, p) - pt) * l;  // dx/dlambda
+  float r2 = r * r;
+  float a2 = a * a;
+  // grad r = r (r^2 x + a^2 z e_z) / (r^4 + a^2 z^2), see rhsKerrAnalytic().
+  vec3 gr = r * vec3(r2 * x.x, r2 * x.y, (r2 + a2) * x.z) / max(r2 * r2 + a2 * x.z * x.z, 1e-12);
+  if (dot(gr, v) >= 0.0) return false;  // outbound: escapes monotonically
+  float E = -pt;
+  float Lz = x.x * p.y - x.y * p.x;
+  float ct = x.z / r;
+  float s2 = max(1.0 - ct * ct, 1e-6);
+  float A = ct * (x.x * p.x + x.y * p.y) - r * s2 * p.z;  // p_theta sin(theta)
+  float Q = (A * A + ct * ct * Lz * Lz) / s2 - a2 * E * E * ct * ct;
+  float rs2 = R_FD_KERR * R_FD_KERR;
+  float Delta = rs2 - 2.0 * R_FD_KERR + a2;
+  float P = (rs2 + a2) * E - a * Lz;
+  float LmaE = Lz - a * E;
+  return P * P - Delta * (LmaE * LmaE + Q) >= 0.0;
 }
 
 #ifdef BINARY
@@ -288,6 +346,9 @@ float hamiltonian(vec3 x, vec3 p, float pt, float a) {
 // ============================================================================
 
 // dx/dlambda = dH/dp (analytic); dp/dlambda = -dH/dx (central differences).
+// This is the force evaluation for WEAK_FIELD, BINARY and plain-Kerr rays
+// that pass through the photon shell; rhsKerrAnalytic below is the
+// closed-form alternative for the remaining plain-Kerr rays (R_FD_KERR).
 // pt is the ray's conserved p_t, fixed by the tetrad initialization (§8);
 // it varies across pixels but is constant along each ray.
 void rhs(vec3 x, vec3 p, float pt, float a, out vec3 dx, out vec3 dp) {
@@ -334,6 +395,55 @@ void rk4Step(inout vec3 x, inout vec3 p, float h, float pt, float a) {
   p += (h / 6.0) * (k1p + 2.0 * k2p + 2.0 * k3p + k4p);
 }
 
+#if !defined(WEAK_FIELD) && !defined(BINARY)
+// Plain-Kerr right-hand side with the force in closed form (no metric
+// evaluations beyond the one that dx/dlambda needs). H depends on x only
+// through f and l, so
+//   dp/dlambda = -dH/dx = lp [ (1/2) lp grad f + f J_l^T p ],  lp = l.p - pt.
+// Implicit differentiation of the §1 quartic r^4 - r^2(rho^2 - a^2) - a^2 z^2
+// gives grad r = (r^2 x + a^2 z e_z) / (r sqrt(disc)); since
+// r^2 sqrt(disc) = 2 r^4 - r^2 (rho^2 - a^2) = r^4 + a^2 z^2 = Sigma,
+//   grad r = r (r^2 x + a^2 z e_z) / Sigma.
+// With f = 2 r^3 / Sigma:
+//   grad f = f [ (3/r - 2 f) grad r - (2 a^2 z / Sigma) e_z ].
+// Differentiating l = ((r x + a y), (r y - a x)) / (r^2 + a^2), z / r):
+//   J_l^T p = C grad r + w,
+//   C = [ p_x x + p_y y - 2 r (p_x l_x + p_y l_y) ] / (r^2 + a^2) - p_z z / r^2,
+//   w = ( (r p_x - a p_y) / (r^2 + a^2), (a p_x + r p_y) / (r^2 + a^2), p_z / r ).
+// Verified against the central difference: in f64 the gap shrinks as eps^2
+// (the FD's own truncation error, ~1e-6 |p|^2 at eps = 2e-3 r); in f32 the
+// difference quotient's roundoff (~1e-4 relative) dominates that gap while
+// this closed form stays within ~5e-7 of the exact derivative.
+void rhsKerrAnalytic(vec3 x, vec3 p, float pt, float a, out vec3 dx, out vec3 dp) {
+  // metricTerms() inlined so r, r^2 and Sigma are reusable (same guards).
+  float r = ksRadius(x, a);
+  float r2 = r * r;
+  float a2 = a * a;
+  float Sig = max(r2 * r2 + a2 * x.z * x.z, 1e-12);
+  float f = 2.0 * r2 * r / Sig;
+  float ra2 = r2 + a2;
+  vec3 l = vec3((r * x.x + a * x.y) / ra2, (r * x.y - a * x.x) / ra2, x.z / r);
+  float lp = dot(l, p) - pt;
+  dx = p - f * lp * l;
+  float a2z = a2 * x.z;
+  vec3 gr = (r / Sig) * vec3(r2 * x.x, r2 * x.y, r2 * x.z + a2z);
+  vec3 gf = f * (3.0 / r - 2.0 * f) * gr - vec3(0.0, 0.0, 2.0 * f * a2z / Sig);
+  float C = (p.x * x.x + p.y * x.y - 2.0 * r * (p.x * l.x + p.y * l.y)) / ra2 - p.z * x.z / r2;
+  vec3 w = vec3((r * p.x - a * p.y) / ra2, (a * p.x + r * p.y) / ra2, p.z / r);
+  dp = lp * (0.5 * lp * gf + f * (C * gr + w));
+}
+
+void rk4StepKerrAnalytic(inout vec3 x, inout vec3 p, float h, float pt, float a) {
+  vec3 k1x, k1p, k2x, k2p, k3x, k3p, k4x, k4p;
+  rhsKerrAnalytic(x, p, pt, a, k1x, k1p);
+  rhsKerrAnalytic(x + 0.5 * h * k1x, p + 0.5 * h * k1p, pt, a, k2x, k2p);
+  rhsKerrAnalytic(x + 0.5 * h * k2x, p + 0.5 * h * k2p, pt, a, k3x, k3p);
+  rhsKerrAnalytic(x + h * k3x, p + h * k3p, pt, a, k4x, k4p);
+  x += (h / 6.0) * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
+  p += (h / 6.0) * (k1p + 2.0 * k2p + 2.0 * k3p + k4p);
+}
+#endif
+
 // Ray initialization now uses the camera tetrad (§8): the traced ray is
 // q^mu = -e0^mu + n^i e_i^mu, exactly null by orthonormality, normalized to
 // unit locally-measured energy. The §4 quadratic survives in the validation
@@ -348,9 +458,26 @@ void rk4Step(inout vec3 x, inout vec3 p, float h, float pt, float a) {
 // the coordinate speed) blows up for past-directed shadow rays: a fixed
 // dlambda there moves RK4 substates by many M and produces garbage states
 // that misclassify as escaped. Bounds: floor 1e-4 (horizon huggers converge
-// via the |p| capture guard), cap 4.0 (distant legs stay cheap).
+// via the |p| capture guard) and cap 20.0. The cap is 0.1 * R_ESCAPE, i.e.
+// the value the displacement rule itself reaches at the escape radius for a
+// ray of unit energy (the far field is asymptotically flat, so
+// |dx/dlambda| -> E there and dlambda -> 0.1 r / E). It DOES bind in the
+// outermost shell, because main() builds rays from a STATIC observer's
+// camera tetrad and their conserved energy is E = -p_t = sqrt(1 - f_cam),
+// which is 0.9428 at the r = 18 M camera, not 1: the rule then asks for
+// 0.106 r, which exceeds 20 beyond r = 200 E = 188.6 M. Out there the cap
+// truncates the request by at most 5.7% (its worst case, at r = R_ESCAPE)
+// and always makes the step FINER, so it costs a fraction of a step per ray
+// and cannot change the image. An earlier version of this comment claimed an
+// f64 replica of the integrator records zero hits on the ceiling; that
+// replica launched its rays with E = 1 exactly, which is where the zero came
+// from. The stated CONDITION was right, the empirical figure was not.
+// The previous cap of 4.0 bound far more widely, beyond r ~ 40 M —
+// a ray leaving the r = 18 M camera coasted the last 160 M of near-flat
+// space in ~40 fixed steps of 4 M instead of ~8 steps of 0.1 r, which is
+// where the geodesic is straightest and the extra steps buy nothing.
 float stepSize(float r, float rH, float speed) {
-  return clamp(0.1 * min(r - 0.9 * rH, r) / max(speed, 1e-6), 1e-4, 4.0);
+  return clamp(0.1 * min(r - 0.9 * rH, r) / max(speed, 1e-6), 1e-4, 20.0);
 }
 
 // ============================================================================
@@ -445,16 +572,17 @@ vec3 diskColor(float t) {
   return c;
 }
 
-// Shade a disk hit at equatorial point xh with ray momentum ph.
+// Shade a disk hit at equatorial point xh. `lambda` is lambda_n, the ray's
+// angular momentum about the DISK normal per unit energy,
+// lambda_n = -((x cross p) . n)/q_t: it is the only thing the shading needs
+// the momentum for, so the caller supplies it (diskCrossing interpolates the
+// invariant itself rather than p — see there). It equals the conserved L_z/E
+// for the equatorial disk; for a tilted disk it is the natural kinematic
+// choice (exact at a = 0 by spherical symmetry; the tilted mode is labeled a
+// kinematic approximation for a != 0 — see docs/rendering.md).
 // Returns premultiplied-style (rgb, alpha) for front-to-back accumulation.
-vec4 diskShade(vec3 xh, vec3 ph, float pt, float r, float a) {
-  // Redshift g = 1 / [u^t (1 - Omega lambda_n)] with lambda_n the angular
-  // momentum about the DISK normal per unit energy, evaluated at the hit:
-  // lambda_n = -((x cross p) . n)/q_t. Equals the conserved L_z/E for the
-  // equatorial disk; for a tilted disk it is the natural kinematic choice
-  // (exact at a = 0 by spherical symmetry; the tilted mode is labeled a
-  // kinematic approximation for a != 0 — see docs/rendering.md).
-  float lambda = -dot(cross(xh, ph), uDiskNormal) / pt;
+vec4 diskShade(vec3 xh, float lambda, float r, float a) {
+  // Redshift g = 1 / [u^t (1 - Omega lambda_n)], evaluated at the hit.
   float g = 1.0 / max(diskUt(r, a) * (1.0 - diskOmega(r, a) * lambda), 1e-3);
   g = min(g, 10.0);
 
@@ -632,6 +760,193 @@ vec3 debugRamp(float t) {
 }
 
 // ============================================================================
+// SECTION: TRACE — per-step disk crossing and the plain-Kerr loop
+// ============================================================================
+#ifndef BINARY
+// Disk hits are RECORDED during the march and SHADED after it (replay loop
+// at the end of main()). diskShade is the bulk of the crossing block's code
+// — diskUt, diskOmega, diskColor, two pow(), and diskPattern, which expands
+// to 3 x vnoiseCyl = 12 x hash13 — and on this software rasterizer a large
+// loop body costs frame time merely by being compiled into the step loop.
+// Recording the hit and replaying the identical front-to-back composite
+// afterwards leaves the arithmetic AND its order untouched: every value
+// diskShade receives is stored, not recomputed, so the replay is exact.
+//
+// Capacity. Crossings OUTSIDE the annulus are resolved but never recorded,
+// which is what keeps the count small — at low spin the photon shell, where
+// a ray winds and crosses the plane many times, lies inside the inner edge
+// (r_ph = 3 M vs r_ISCO = 6 M at a = 0; r_ph,retro = 3.63 M vs 3.83 M at
+// a = 0.6), so those windings cost no capacity. At a = 0.998 the prograde
+// ISCO (1.24 M) is well inside the retrograde photon orbit (~4 M) and the
+// windings DO land in the annulus, so that scene sets the count. Two bounds
+// hold it down. (i) Opacity: alpha = (0.5 + 0.35 noise) * rim-fade with
+// noise >= 0, so any hit at r <= 0.85 uDiskOuter has alpha >= 0.5 and accA
+// after n of them is >= 1 - 0.5^n, which passes 0.99 at n = 7 — the parent
+// refuses the 8th itself. (ii) Only rim hits (the outer 15%, where the fade
+// takes alpha toward 0) fail to advance accA, and sustaining theta
+// oscillation while r stays in that thin shell would need near-circular
+// photon motion out at r ~ 10 M, which does not exist; a ray passes the rim
+// inbound and outbound. A census (probe build, exact-color debug view,
+// counting every in-annulus crossing per ray with the capacity guard
+// removed) measured the worst ray at 5 crossings over the four bench scenes
+// and 6 over off-bench ones the gate cannot see — tilted disk, edge-on
+// views, r_cam from 5 to 60 M, uDiskOuter at the panel maximum 20 M,
+// retrograde sense, uMaxSteps to 900. 12 is double that and clears bound (i)
+// as well, so the buffer cannot fill on a rendered ray.
+const int DISK_HITS = 12;
+vec4 gDiskHit[DISK_HITS];   // xyz = hit point, w = r at the hit
+float gDiskLam[DISK_HITS];  // lambda_n at the hit
+int gDiskHitN;              // hits recorded so far; reset in main()
+
+// dx/dlambda at a state (x, p) — the same expression the step-size block
+// forms for the ray's current point, needed here for the END of a step.
+vec3 rayVel(vec3 x, vec3 p, float pt, float a) {
+#ifdef WEAK_FIELD
+  return p / (1.0 - 2.0 * wfPhi(x));
+#else
+  float f;
+  vec3 l;
+  metricTerms(x, a, f, l);
+  return p - f * (dot(l, p) - pt) * l;
+#endif
+}
+
+// Disk plane crossing: sign change of (x . n) across the step xPrev -> x.
+// The hit is INTERPOLATED, not re-integrated. RK4 leaves both endpoints on
+// the geodesic and dx/dlambda is known at both (vPrev is the value the
+// step-size block already computed; vEnd is one metric evaluation), so the
+// cubic Hermite
+//   X(s) = H00 xPrev + H10 h vPrev + H01 x + H11 h vEnd ,  s in [0,1]
+// matches position AND tangent at each end and is O(h^4) in the hit point.
+// Its normal component z(s) = X(s).n is a scalar cubic; two Newton steps from
+// the chord root z0/(z0 - z1) solve z(s) = 0 to f32 (the cubic is a small
+// perturbation of the chord, so Newton has converged after the first).
+// Accuracy, with the displacement rule h |dx/dlambda| = 0.1 r: the hit moves
+// by ~h^4 |x''''|/384 ~ 2e-6 M at the inner edge (r = 6 M), against
+// ~(h/8)^2 |x''|/8 ~ 1e-4 M for the three-bisection-then-chord scheme this
+// replaces and ~8e-3 M for a bare chord across the whole step. So the
+// interpolant is both ~75x CLOSER to the true crossing than four RK4
+// sub-steps and free of them. The residual matters most at the inner edge,
+// where emissivity (1 - sqrt(r_in/r))/r^3 and T ~ r^(-3/4) are steepest in
+// ln r, and in diskPattern's azimuthal noise, whose phase a chord smears.
+//
+// Where a Hermite LIES: when the normal velocity disagrees with the chord —
+// a near-tangential crossing, or a step straddling the plane twice (which the
+// outer sign test misses anyway, then as now). The Fritsch-Carlson limiter
+// below forces each tangent's normal component into [0, 3] x (z1 - z0), which
+// makes z(s) monotone: exactly one root, Newton cannot walk out of the
+// bracket, and when the limiter bites the interpolant degrades smoothly to
+// the chord. No denominator clamp is needed any more either: the sign test
+// makes |z0 - z1| = |z0| + |z1|, which cannot cancel the way the old
+// bracket's za - zb could.
+//
+// The momentum is not interpolated at all. diskShade needs p only through
+// lambda_n = -((x cross p) . n)/p_t, which is the conserved L_z/E for the
+// untilted disk, so the crossing value is taken as mix of the two ENDPOINT
+// lambdas — exact whenever lambda_n is conserved, and otherwise only the
+// second-order error of a nearly constant function, instead of carrying the
+// full second-order error of p into g and into the g^4 beaming.
+void diskCrossing(vec3 xPrev, vec3 pPrev, vec3 vPrev, vec3 x, vec3 p, float h,
+                  float pt, float a) {
+  float z0 = dot(xPrev, uDiskNormal);
+  float z1 = dot(x, uDiskNormal);
+  // The opacity cutoff that used to stand here (accA < 0.99) has moved to the
+  // replay, which applies it to the same hits in the same order; what remains
+  // is the buffer guard. Resolving a crossing has no side effect other than
+  // the record, so refusing to shade it later is the same decision, taken in
+  // the same place in the sequence.
+  if (uDiskOn == 1 && z0 * z1 < 0.0 && gDiskHitN < DISK_HITS) {
+    vec3 dx = x - xPrev;
+    vec3 m0 = h * vPrev;
+    vec3 m1 = h * rayVel(x, p, pt, a);
+    float dz = z1 - z0;
+    float mz0 = dot(m0, uDiskNormal);
+    float mz1 = dot(m1, uDiskNormal);
+    // Fritsch-Carlson: scale each tangent so its normal component keeps the
+    // chord's sign and is at most 3 dz. clamp() also absorbs mz = 0 (the
+    // quotient overflows to +-inf and clamps to 1 or 0, both monotone); dz
+    // itself cannot be zero under the sign test above.
+    float k0 = clamp(3.0 * dz / mz0, 0.0, 1.0);
+    float k1 = clamp(3.0 * dz / mz1, 0.0, 1.0);
+    m0 *= k0;
+    m1 *= k1;
+    mz0 *= k0;
+    mz1 *= k1;
+    // Power form of the cubic Hermite: c0 = z0, c1 = mz0.
+    float c2 = 3.0 * dz - 2.0 * mz0 - mz1;
+    float c3 = -2.0 * dz + mz0 + mz1;
+    float s = z0 / (z0 - z1);  // chord root; in (0, 1) by the sign test
+    for (int it = 0; it < 2; it++) {
+      float zs = z0 + s * (mz0 + s * (c2 + s * c3));
+      float ds = mz0 + s * (2.0 * c2 + 3.0 * s * c3);
+      // |z'| only vanishes where the limiter has already flattened the cubic;
+      // fall back to the chord slope so the correction stays finite.
+      s = clamp(s - zs / ((abs(ds) > 1e-12) ? ds : dz), 0.0, 1.0);
+    }
+    // Same tangents, so the vector interpolant's normal component IS z(s):
+    // xh lies on the disk plane to the accuracy of the root solve.
+    vec3 d2 = 3.0 * dx - 2.0 * m0 - m1;
+    vec3 d3 = -2.0 * dx + m0 + m1;
+    vec3 xh = xPrev + s * (m0 + s * (d2 + s * d3));
+    float rHit = ksRadius(xh, a);
+    if (rHit > uDiskInner && rHit < uDiskOuter) {
+      float lam0 = -dot(cross(xPrev, pPrev), uDiskNormal) / pt;
+      float lam1 = -dot(cross(x, p), uDiskNormal) / pt;
+      // Store, do not recompute: the replay hands diskShade the very floats
+      // this block produced, so no purity-of-ksRadius argument is needed.
+      gDiskHit[gDiskHitN] = vec4(xh, rHit);
+      gDiskLam[gDiskHitN] = mix(lam0, lam1, s);
+      gDiskHitN++;
+    }
+  }
+}
+#endif  // ifndef BINARY (disk crossing)
+
+#if !defined(WEAK_FIELD) && !defined(BINARY)
+// Plain-Kerr integration loop (termination rules are commented in main()'s
+// multi-mass loop, which mirrors this one). `fd` selects the force
+// evaluation for the WHOLE ray (R_FD_KERR / kerrEntersShell) and is hoisted
+// out of the loop on purpose: main() calls this twice under a per-ray
+// branch, each call with a literal. A per-step `if (fd)` inside rhs was
+// measured to cost the SUM of both paths on a lane-masked software
+// rasterizer (both sides execute under predication), whereas a masked loop
+// whose lanes are all inactive exits at once.
+void traceKerr(inout vec3 x, inout vec3 p, float pt, float a, float rH, float rCapture,
+               bool fd, inout int steps, inout int outcome) {
+  for (int i = 0; i < HARD_CAP; i++) {
+    if (i >= uMaxSteps) break;
+    float r = ksRadius(x, a);
+    if (r < rCapture) {
+      outcome = 1;
+      break;
+    }
+    if (r > R_ESCAPE) {
+      outcome = 2;
+      break;
+    }
+    if (!(dot(p, p) <= 1e8)) {  // momentum blow-up / NaN: captured
+      outcome = 1;
+      break;
+    }
+    float f;
+    vec3 l;
+    metricTerms(x, a, f, l);
+    vec3 v = p - f * (dot(l, p) - pt) * l;  // dx/dlambda
+    float h = stepSize(r, rH, length(v));
+    vec3 xPrev = x;
+    vec3 pPrev = p;
+    if (fd) {
+      rk4Step(x, p, h, pt, a);
+    } else {
+      rk4StepKerrAnalytic(x, p, h, pt, a);
+    }
+    steps++;
+    diskCrossing(xPrev, pPrev, v, x, p, h, pt, a);
+  }
+}
+#endif
+
+// ============================================================================
 // SECTION: MAIN — ray construction, integration loop, shading dispatch
 // ============================================================================
 void main() {
@@ -694,12 +1009,18 @@ void main() {
   float pt = -q4.w + fCam * lq;         // q_t = g_{t nu} q^nu
   vec3 x = uCamPos;
   vec3 p = q4.xyz + fCam * lq * lCam;   // q_i = g_{i nu} q^nu
+  // Force-evaluation choice for this ray (see R_FD_KERR).
+  bool kerrFD = kerrEntersShell(x, p, pt, a);
 #endif
 #endif
 
-  // Front-to-back transparent accumulation over disk crossings.
+  // Front-to-back transparent accumulation over disk crossings. The march
+  // only records them; the composite runs below it (see DISK_HITS).
   vec3 accCol = vec3(0.0);
   float accA = 0.0;
+#ifndef BINARY
+  gDiskHitN = 0;
+#endif
 
   int steps = 0;
   int outcome = 0;  // 0 budget-exceeded, 1 captured, 2 escaped
@@ -708,6 +1029,7 @@ void main() {
   // t = 0). Drives the holes' worldline positions c(tt) = c0 + v tt.
   float tt = 0.0;
 #endif
+#if defined(WEAK_FIELD) || defined(BINARY)
   for (int i = 0; i < HARD_CAP; i++) {
     if (i >= uMaxSteps) break;
 #ifdef WEAK_FIELD
@@ -718,7 +1040,7 @@ void main() {
       outcome = 1;
       break;
     }
-#elif defined(BINARY)
+#else
     // r is the rest radius about hole 1 (equal to the Kerr r when M2 = 0,
     // and a valid escape measure since both holes sit near the origin).
     // Under RETARDED the centers ride their worldlines to the ray's time tt.
@@ -735,12 +1057,6 @@ void main() {
       break;
     }
     if (uB2M > 0.0 && binaryRadius(x, bc2, uB2A, uB2Boost) < bCap2) {
-      outcome = 1;
-      break;
-    }
-#else
-    float r = ksRadius(x, a);
-    if (r < rCapture) {
       outcome = 1;
       break;
     }
@@ -763,7 +1079,7 @@ void main() {
 #ifdef WEAK_FIELD
     vec3 v = p / (1.0 - 2.0 * wfPhi(x));
     float h = clamp(0.08 * max(wfNearest(x), 0.05) / max(length(v), 1e-6), 1e-4, 6.0);
-#elif defined(BINARY)
+#else
     float f1s, f2s, ss1, ss2, ccs, Ds;
     vec4 l1s, l2s;
 #ifdef RETARDED
@@ -786,13 +1102,14 @@ void main() {
       float r2b = binaryRadius(x, bc2, uB2A, uB2Boost);
       guide = min(guide, min(r2b - 0.9 * bRh2, r2b));
     }
-    float h = clamp(0.1 * guide / max(length(v), 1e-6), 1e-4, 4.0);
-#else
-    float f;
-    vec3 l;
-    metricTerms(x, a, f, l);
-    vec3 v = p - f * (dot(l, p) - pt) * l;  // dx/dlambda
-    float h = stepSize(r, rH, length(v));
+    // Same ceiling as stepSize(): 0.1 * R_ESCAPE is the largest dlambda this
+    // displacement rule can ask for inside the domain at unit coordinate
+    // speed, so it is a degeneracy backstop rather than a binding cap. The
+    // former absolute 4.0 was an absolute length imposed on an otherwise
+    // scale-free rule: it bound for every ray beyond r ~ 40 M and spent steps
+    // for no accuracy. Removing it also restores the single-hole limit, since
+    // BINARY(M2 = 0) now steps identically to plain Kerr (e2e/phase13).
+    float h = clamp(0.1 * guide / max(length(v), 1e-6), 1e-4, 0.1 * R_ESCAPE);
 #endif
     vec3 xPrev = x;
     vec3 pPrev = p;
@@ -803,44 +1120,31 @@ void main() {
 #endif
     steps++;
 
-#ifndef BINARY
-    // Disk plane crossing: sign change of (x . n) across the step. Bisect
-    // the step 3 times (each halving re-integrates, so the hit point lies
-    // on the true geodesic), then linearly interpolate the final sub-step.
-    // A high-curvature step straddling the plane twice can be missed — the
-    // adaptive step keeps steps ~10% of the local scale, making that rare.
-    if (uDiskOn == 1 && dot(xPrev, uDiskNormal) * dot(x, uDiskNormal) < 0.0 && accA < 0.99) {
-      vec3 xa = xPrev;
-      vec3 pa = pPrev;
-      float hh = h;
-      for (int b = 0; b < 3; b++) {
-        hh *= 0.5;
-        vec3 xm = xa;
-        vec3 pm = pa;
-        rk4Step(xm, pm, hh, pt, a);
-        if (dot(xa, uDiskNormal) * dot(xm, uDiskNormal) >= 0.0) {
-          xa = xm;  // crossing is in the second half
-          pa = pm;
-        }
-      }
-      vec3 xb = xa;
-      vec3 pb = pa;
-      rk4Step(xb, pb, hh, pt, a);
-      float za = dot(xa, uDiskNormal);
-      float denom = za - dot(xb, uDiskNormal);
-      if (abs(denom) < 1e-12) denom = 1e-12;
-      float tf = clamp(za / denom, 0.0, 1.0);
-      vec3 xh = mix(xa, xb, tf);
-      vec3 ph = mix(pa, pb, tf);
-      float rHit = ksRadius(xh, a);
-      if (rHit > uDiskInner && rHit < uDiskOuter) {
-        vec4 d = diskShade(xh, ph, pt, rHit, a);
-        accCol += (1.0 - accA) * d.a * d.rgb;
-        accA += (1.0 - accA) * d.a;
-      }
-    }
-#endif  // ifndef BINARY (disk crossing)
+#ifdef WEAK_FIELD
+    diskCrossing(xPrev, pPrev, v, x, p, h, pt, a);
+#endif
   }
+#else
+  // Plain Kerr: one specialised loop per force evaluation (see traceKerr).
+  if (kerrFD) {
+    traceKerr(x, p, pt, a, rH, rCapture, true, steps, outcome);
+  } else {
+    traceKerr(x, p, pt, a, rH, rCapture, false, steps, outcome);
+  }
+#endif
+
+#ifndef BINARY
+  // Replay: shade the recorded crossings front to back. Same hits, same
+  // arguments, same order, same 0.99 cutoff as the in-loop composite this
+  // replaces — only now diskShade is compiled once, outside the step loop.
+  for (int k = 0; k < DISK_HITS; k++) {
+    if (k >= gDiskHitN || accA >= 0.99) break;
+    vec4 hit = gDiskHit[k];
+    vec4 d = diskShade(hit.xyz, gDiskLam[k], hit.w, a);
+    accCol += (1.0 - accA) * d.a * d.rgb;
+    accA += (1.0 - accA) * d.a;
+  }
+#endif
 
   // --- Debug views override normal shading ---
   if (uDebugView == 1) {  // step count / budget

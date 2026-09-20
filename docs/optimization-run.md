@@ -9,8 +9,11 @@ of the computation changed.
 
 | | frame_ms | vs anchor |
 |---|---|---|
-| anchor (`8d34f1a`) | 340.0 | — |
-| winner | **68.2** | **−79.9%** |
+| anchor (`8d34f1a`) | 341.6 | — |
+| winner, as applied to this branch | **67.6** | **−80.2%** |
+
+The merger frame, which the metric never times, went from 432.6 ms to 350.7 ms (−19%) as a
+side effect of the phase13 fix below.
 
 `frame_ms` is the median wall time of one full synchronous frame on a fixed Kerr scene
 (a = 0.6, disk on, 160×120 internal, 400 steps) under headless SwiftShader. There is no GPU
@@ -108,40 +111,55 @@ plunges through the horizon being integrated as though it stayed clear of the ph
 At a = 0 the bug vanishes, because the cross term does. The parity gate was passing anyway,
 by luck. With the sign corrected, zero misroutes over ~26,000 sampled rays per scene.
 
-## One regression this run introduced, and it is not fixed
+## The regression this run introduced, and how it was fixed
 
-`e2e/phase13.cjs` asserts a designed invariant: binary mode with the second mass set to
-zero must render **pixel-identical** to plain Kerr mode at the same spin and camera, because
-the BINARY branches are built to reduce bit-for-bit when the second hole's f vanishes. Its
-tolerance is 0.1% of pixels.
+`e2e/phase13.cjs` asserts a designed invariant: binary mode with the second mass set to zero
+must render **pixel-identical** to plain Kerr mode, because the BINARY branches are built to
+reduce bit-for-bit when the second hole's f vanishes. That broke in round 2 and stayed broken
+through the winner (anchor 0, every later tree 0.0244 against a 0.1% tolerance).
 
-| tree | parity_diffFrac | result |
-|---|---|---|
-| anchor | 0 | PASS |
-| c4 (round 2) | 0.0244140625 | FAIL |
-| c7, c8, c11 | 0.024388020833 | FAIL |
+Two differences caused it, and measurement showed **both** were needed — neither alone
+restored the limit:
 
-I confirmed both ends myself: the anchor returns exactly 0 and the winner returns 0.02439.
-The break dates from round 2's approved candidate, not from the winner, which inherits it
-unchanged to sixteen significant figures. Candidate 11's other three phase-13 assertions
-(two-hole scene, |H|-drift band, deep-overlap smoke) all pass, and the full suite is
-otherwise green: phases 1, 3, 5, 6, 8, 9, 10, 11, 12, 14, 15, 16 PASS.
+| configuration | phase13 parity_diffFrac |
+|---|---|
+| winner as it stood | 0.02439 |
+| binary step ceiling matched only | 0.02229 |
+| generic force on both sides only | 0.02188 |
+| both | **0** |
 
-The cause is direct. The plain-Kerr march now uses the closed-form force and a step ceiling
-of `0.1 * R_ESCAPE`, while the BINARY march keeps the anchor's finite-difference force and
-its own inlined `clamp(..., 1e-4, 4.0)`. The two paths no longer agree in the limit where
-they are supposed to coincide. Nothing about the physics is wrong in either path; the
-*designed equivalence between them* is what broke, and phase13 exists precisely to catch
-that.
+The fix is two parts, neither of which costs frame time.
 
-The fix is not a waiver. Propagating the same specialisation and ceiling into the BINARY
-march would restore the reduction AND speed up merger mode, which the benchmark never times
-because its timing scene is plain Kerr. That converges with the follow-up item below about
-the binary path's inlined step rule: they are the same work. It was correctly out of scope
-during the run — a candidate that changed the BINARY path to chase a Kerr-scene metric would
-have been optimising against a number that cannot see it.
+**1. The BINARY march's own step ceiling, `4.0` -> `0.1 * R_ESCAPE`.** Its step rule already
+uses the same r-based guide as `stepSize()`, so the same argument applies: an absolute length
+in a scale-free rule bound for every ray beyond r ~ 40 M and bought no accuracy. Rendering
+the merger frame against a converged reference (displacement fraction 0.02, 1000 steps) shows
+the new ceiling is marginally *closer* to converged, not further — 9.61% of pixels beyond
+8/255 versus 9.86%. It also makes merger mode **19% faster**: 432.6 ms -> 350.7 ms on the
+benchmark's merger frame, which `frame_ms` never sees because it times a plain-Kerr scene.
 
-**This should be fixed before the winning shader is merged anywhere.**
+**2. The comparison now runs from r_cam = 4 M instead of 30 M.** This is the part that
+matters conceptually. The BINARY march always evaluates the force by finite difference, while
+plain Kerr now specialises to the closed form for rays clearing the photon shell. Those are
+two correct but different discretisations, so from a distant camera the old assertion had
+stopped testing the metric reduction and started measuring the specialisation. Inside
+`R_FD_KERR` = 5 M, `kerrEntersShell()` returns true for every ray on sight, so plain Kerr runs
+the generic force too and both sides share one discretisation. The reduction is now asserted
+at **zero** tolerance, stronger than the 0.1% it used to allow, and a new check 1b bounds the
+specialisation's own effect from the 30 M camera.
+
+A runtime uniform to force the generic force was tried first and **rejected on measurement**:
+it cost 10-18% of frame time in every formulation, for one uniform read per ray. That is the
+same sensitivity the whole run kept finding — this march punishes anything added to it. The
+camera-radius route achieves the same comparison for nothing.
+
+Regenerating `bench/reference/scene-4.png` was necessary, since the binary path deliberately
+changed. Scenes 1-3 keep the anchor's references untouched. Worth recording: at the
+benchmark's 200-step budget the merger frame sits ~10% of pixels away from a converged render
+regardless of the ceiling, so scene 4's parity was always a same-code check rather than a
+correct-image one.
+
+Full suite green afterwards: phases 1, 3, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16 PASS.
 
 ## Process notes
 
@@ -166,10 +184,9 @@ first and to re-derive every number it reported.
   the step cap, so it cannot catch this class of drift.
 * Add benchmark scenes that render the `WEAK_FIELD` and `BINARY+RETARDED` variants, with
   committed references, and correct the harness header.
-* The binary and weak-field march loops carry their own inlined step rules, both still using
-  the absolute cap the plain-Kerr path shed, and the binary path still uses the
-  finite-difference force. Invisible to `frame_ms`, which times a Kerr scene only, so it was
-  correctly left alone during the run. This is the same work as the phase13 fix above.
+* The weak-field march still carries its own inlined step rule with an absolute cap. Its
+  scale is the potential, not r, so c7's argument does not transfer unchanged and it needs
+  its own derivation. The binary march's ceiling was fixed with the phase13 regression above.
 * **The far-field asymptotic handoff is open, not dead.** A round-4 candidate concluded it
   was dead; its reviewer refuted the load-bearing step with an independent f64 replica. The
   mass tail is closed-form and confirmed to ~1%; the spin contribution falls at the same
@@ -178,6 +195,7 @@ first and to re-derive every number it reported.
 
 ## Artifacts
 
+* The winning shader is applied to this branch; its unmodified form is `evolve/1/candidate-11`
 * Run state, per-candidate metrics, verdicts and all raw repeats: `evolve-state/1/`
 * Supervisor probe tables, hint corrections and the negative-result ledger:
   `evolve-state/1/notes/`
