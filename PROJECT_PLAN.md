@@ -6,7 +6,12 @@ Portfolio thesis: *physics → numerics → validation → rendering*, in that o
 
 Part I is the specification; Part II is the task list. Tasks reference specification sections (e.g. *§2.2*). Phases 1–11 each end at a **review checkpoint**: work pauses for explicit confirmation before the next phase begins. Phases 0–7 constitute the core release; Phases 8–11 are the extended features (§9), committed scope sequenced after the core release rather than optional stretch goals.
 
-> **Status: all 12 phases complete.** Final certification (2026-07-13): all 9
+> **Status (2026-10-07): Phases 0–20 complete; Phases 21–22 planned.** Phase 20
+> cut the benchmark frame time by 80% (docs/optimization-run.md). Phase 21 closes
+> the renderer-consistency and test-coverage gaps that work exposed, then cleans up.
+> Phase 22 adds head-coupled perspective (§11).
+>
+> *Core-release certification (2026-07-13):* all 12 phases complete; all 9
 > browser e2e suites pass against the final build and the float64 validation
 > suite passes 12/12 checks. GitHub Pages is enabled (owner action done) and
 > the WebGPU HQ path has been exercised end-to-end in-container via the
@@ -292,6 +297,67 @@ Merger mode joins the mode switch; event selector; play/pause/restart; slow-moti
 
 NR merger dynamics; visible GW metric perturbations; kicks; precessing spins (aligned-spin only via χ_eff); accretion disks during merger.
 
+## 11. Head-coupled perspective specification (Phase 22)
+
+Off-axis projection driven by the viewer's tracked head: the monitor stops being a picture and becomes a **window** onto the scene (head-coupled perspective, "fish-tank VR"; Lee 2007). Owner request, 2026-10-07.
+
+### 11.1 Projection
+
+A ray tracer needs no off-axis projection matrix. Each pixel's direction is built at exactly one site per render path, in the observer's local (right, up, forward) frame, before it enters curved spacetime. With the eye displaced by **d** = (d_r, d_u, d_f) metres from its rest position a distance e in front of the screen, and a pixel at physical position (s_x, s_y) relative to the screen centre, the local direction becomes
+
+n ∝ (s_x − d_r, s_y − d_u, e − d_f),
+
+which reduces to the existing symmetric fan when **d** = 0 and tan(fov_y/2) = (H_screen/2)/e. Every render path builds rays separately and must change: plain Kerr, BINARY, WEAK_FIELD (GLSL) and the HQ path (`hq.wgsl`).
+
+### 11.2 Observer
+
+Head motion is a **change of pose of a static observer**, never a velocity: the tetrad e₀ stays the static observer at the displaced position, consistent with item 93 (drag is a static observer). Head speeds are ~10⁻⁹ c, so there is no aberration to model. The displacement maps linearly along the static tetrad's spatial legs, x′ = x + (d_r e₁ + d_u e₂ + d_f e₃)/M_len, and the tetrad is recomputed at x′. Labeled approximation: valid while |**d**| ≪ the local curvature radius √(r³/M); at the framings below it is a few percent.
+
+### 11.3 The scale model — why this is not an exaggeration
+
+Taken at astrophysical scale the effect is invisible: the default scene is a 10 M☉ hole seen from ~270 km, and centimetres of head motion produce no parallax at all. But the renderer is **exactly scale-invariant in M** — Phase 12 verified that changing M by five orders of magnitude changes zero pixels — so nothing in the image fixes the hole's size. Choose the depth D at which the hole sits relative to the glass (D > 0 behind, D < 0 in front); that fixes the length unit
+
+M_len = (e + D) / R_cam,
+
+and the parallax is then *exactly* what that black hole would look like. Worked examples, eye 60 cm from the glass, camera framed so the shadow fits (R_cam ≈ 55 M):
+
+| Placement | M_len | Mass | Horizon diameter |
+|---|---|---|---|
+| 1 m behind the glass | ≈ 2.9 cm | ≈ 6.5 Earth masses | ≈ 11 cm |
+| 30 cm in front of the glass | ≈ 5.5 mm | ≈ 1.2 Earth masses | ≈ 2 cm |
+
+Tidal forces are ignored (the viewer would not survive them); the view is exact. **One control** spans the whole range — "how far behind the glass the hole sits" — and the existing mass readout reports the black hole being viewed. At astronomical D the parallax smoothly vanishes, recovering the literal case.
+
+**Depth is unobservable from one viewpoint.** With the eye centred the image is identical for every D (scale invariance); only head motion reveals depth. This is a testable invariant (§11.6).
+
+### 11.4 What moves, and by how much
+
+For a sideways head displacement δ, an object at depth D shifts on screen by δ·D/(e + D); stars at infinity shift by δ. With e = 60 cm:
+
+| Where it sits | Moves on screen | Relative to the stars |
+|---|---|---|
+| Stars, at infinity | with the head, 100% | reference |
+| Hole 1 m behind | with the head, 62.5% | against the head, 37.5% |
+| On the glass | not at all | against the head, 100% |
+| Hole 30 cm in front | against the head, 100% | against the head, 200% |
+
+Free from the ray tracer, no extra code: lensed star images **re-form** rather than slide (background stars drift into alignment, flare into arcs and rings, break apart), and the disk's near and far sides parallax against each other, giving the hole internal depth.
+
+### 11.5 Constraints
+
+- **Physical field of view is narrower.** A window at normal viewing distance subtends half the current 60° or less; at R_cam = 18 M the shadow (~32°) would fill the screen. This mode auto-frames R_cam so the shadow occupies a set fraction of the window.
+- **Window violation (in front of the glass).** A near object cut off by the screen edge collapses the illusion, because the farther frame appears to occlude it. The disk is wide, so for D < 0 the auto-framing also keeps the disk's outer edge inside the frame with margin. Stars are unaffected.
+- **Ergosphere clamp (in front of the glass).** A hole placed in front of the glass is within reach of the viewer's head. No static observer exists inside the ergosphere — spacetime drags everything there — and the app already refuses a stationary camera inside it. Leaning in is clamped at that existing guard. This is physics, not a code limitation.
+- **Monocular.** With both eyes open, stereopsis reports a flat screen; the effect is strongest with one eye closed. Single viewer.
+
+### 11.6 Tracking, privacy, testing
+
+- **Tracking.** MediaPipe Face Landmarker loaded from jsdelivr **only when enabled** (the app's first runtime download; today it fetches nothing external). Eye midpoint from iris landmarks; distance from apparent iris diameter (≈ 11.7 mm, nearly constant across people). One-Euro smoothing plus short prediction — latency breaks the illusion faster than anything else.
+- **Calibration.** A browser cannot know the screen's physical size or the webcam's field of view: one-time setup with sensible defaults.
+- **Privacy.** Off by default; frames are processed on-device and never transmitted; the UI says so.
+- **Testing.** A test seam injects the eye position (headless has no webcam). Invariants: (1) centred eye ⇒ pixel-identical image for every D (scale invariance, the analogue of the Phase 12 mass check); (2) at astronomical D a star shifts on screen by exactly δ; (3) at D = 0 the hole is pinned while the sky moves; (4) leaning in stops at the ergosphere guard.
+- **Honesty ladder entry.** View exact for the chosen M; scale-model mass is a real black hole; tides ignored; linear eye-displacement map (§11.2); monocular.
+
 ---
 
 # Part II: Development Phases
@@ -423,7 +489,7 @@ NR merger dynamics; visible GW metric perturbations; kicks; precessing spins (al
 
 ## Phase 14: Merger Mode — BINARY Shader Variant (§10.2)
 
-75. [in-progress] `#define BINARY` shader variant: superposed boosted-KS metric terms + Sherman–Morrison inverse in GLSL; static two-hole scene (fixed separation) rendering with two shadows and inter-hole lensing; uniforms for per-hole mass/spin/position/velocity.
+75. [completed] `#define BINARY` shader variant: superposed boosted-KS metric terms + Sherman–Morrison inverse in GLSL; static two-hole scene (fixed separation) rendering with two shadows and inter-hole lensing; uniforms for per-hole mass/spin/position/velocity.
 76. [completed] e2e `phase13.cjs` (naming continues the suite numbering): single-hole-limit pixel parity vs Kerr mode (M₂ = 0 → identical frames), two-hole scene renders with two capture regions at predicted screen positions, far-separation consistency vs the weak-field mode; report.
 77. [completed] Commit; **checkpoint**: static binary renders reviewed (owner approved, 2026-07-20: "keep going").
 
@@ -459,3 +525,36 @@ Owner directive: make the merger read like the iconic SXS/LIGO GW150914 visualiz
 91. [completed] **Real-data chirp strip.** Embedded the actual GW150914 H1 observed strain (whitened + band-passed 35–350 Hz) with the released NR reconstruction overlaid (`src/gw150914_chirp.json`, GWOSC DOI 10.7935/K5MW2F23), plotted amplitude-vs-time with a playhead mapped to the visual merger. Shown for GW150914 (the reference detection); other events animate silently. e2e `phase15.cjs` rewritten: real data present, chirps (rising zero-crossing rate), strip draws, other-event hidden, no audio hook, hide paths. Docs (README, derivations §12, LEARN.binary) updated.
 92. [completed] **Merger camera: autonomous drift + sky scintillation fixed.** Owner report ("camera movement is weird, was better before") diagnosed empirically with a 2×2 (old/new radius × sparse/rich sky): the camera code was unchanged; the cinematic idle auto-orbit (always on) had been invisible against the old sparse sky but the new dense backdrop is drawn from sub-pixel stars, so 0.7° of drift changed 51–76% of pixels and the sky visibly crawled on its own. Fixes: idle drift disabled in merger mode (verified live: kerr drift still 0.00313 rad/7 s, merger drift exactly 0); rich-sky star footprint widened to ~1 px (flux-conserved) — 40 px drag scintillation 0.79 → 0.426. phase12 + 13–16 green.
 93. [completed] **Interactive drag is now a static observer (drag aberration removed).** Owner report: the hole "shifts off center when I drag." Diagnosed: not a geodesic constraint — it was the physical moving-observer camera (items 68–69): the drag velocity aberrated the view, sliding the shadow off-center during every drag (measured: centroid shifts with mapped speed and returns on release; headless is a lower bound, real hardware reaches the ~14° cap). Removed at the owner's direction: the interactive orbit's tetrad e₀ is now the static observer, so the hole stays centered under the cursor; the drag→velocity estimator and its constants are deleted. `movingObserver` remains for the phase-8 physics diagnostic (v = 0 ≡ static) and free fall keeps its own geodesic velocity/aberration. phase12 check 5b rewritten to assert the new contract (mapped speed exactly 0 throughout a real drag, and the mid-drag frame pixel-identical to a static render at the same camera pose — dragging changes the pose, never the observer). Docs (rendering camera model, Camera popup) updated.
+
+
+## Phase 20: Shader Performance Optimisation (agent-evolve, 2026-09)
+
+Four-round evolutionary search (explorer/reviewer protocol, isolated worktrees) over `render.frag.glsl`. Full narrative, measurement protocol and the 16-item negative-result ledger: `docs/optimization-run.md`, `docs/optimization-ledger.md`.
+
+94. [completed] **Eval harness** (`bench/bench.cjs`): frame time on a fixed Kerr scene under headless SwiftShader (a relative proxy for shader cost — no GPU) plus a pixel-parity gate over four deterministic scenes against committed references. Cross-session timings proved invalid (the anchor drifted 291.9 → 343.4 ms between sessions); every result uses **interleaved same-conditions remeasurement**.
+95. [completed] **Winner applied** — benchmark frame 341.6 → 67.6 ms (−80.2%) at parity 0.99965. Four changes: per-ray loop-level closed-form vs finite-difference force selection; far-field step ceiling 4.0 → 0.1·R_ESCAPE; disk hits by Fritsch–Carlson-limited cubic Hermite interpolation instead of four RK4 sub-steps; disk shading hoisted out of the march into a post-loop replay. Three of the four concern what is compiled into the loop body, not arithmetic.
+96. [completed] **Covariant-energy sign bug fixed** in the ray classifier (`E = −p_t`, not `p_t`): R(r) is invariant only under flipping E and L_z together, so the classifier evaluated the potential for spin −a, misrouting 159 rays/frame at a = 0.998. Zero misroutes over ~26 000 sampled rays per scene after the fix.
+97. [completed] **phase13 single-hole-limit regression fixed** (introduced in round 2). BINARY march step ceiling matched to the plain-Kerr rule (merger frame 432.6 → 350.7 ms, −19%; marginally closer to a converged render); the comparison now runs from r_cam = 4 M, inside R_FD_KERR, where both modes share one discretisation — asserted at **zero** tolerance, plus check 1b bounding the specialisation from 30 M. A runtime uniform to force the generic force was rejected on measurement (10–18% frame cost). `bench/reference/scene-4.png` regenerated; scenes 1–3 keep the anchor's references.
+98. [completed] Docs cross-referenced from `docs/README.md`. Full e2e suite green (phases 1, 3, 5, 6, 8–16).
+
+## Phase 21: Renderer Consistency, Coverage, and Cleanup
+
+Closes the gaps Phase 20 exposed. Ordered by dependency: item 100 is a prerequisite, because items 101–103 modify render paths the benchmark does not currently draw.
+
+99. [pending] **Phase 20 test report** `e2e/reports/phase20.md`, keeping the one-report-per-phase convention.
+100. [pending] **Benchmark coverage.** Two of the four compiled variants are never rendered: add a multi-mass scene (`WEAK_FIELD`) and a retarded-transport scene (`BINARY+RETARDED`) with committed references; correct the harness header, which claims full coverage; confirm determinism with `--selftest`.
+101. [pending] **Converge the WebGPU HQ path.** `hq.wgsl` still runs the anchor algorithm end to end (step cap 4.0, three-bisection disk crossing with the 1e-12 guard, no classifier or closed-form force). Port in order, measuring after each: step ceiling; Hermite crossing; then classifier + analytic force if the first two behave. Strengthen `e2e/phase11.cjs`: its constant list matches the substring `"0.1 * min(r - 0.9"`, which survives a changed ceiling — compare the full step expression including bounds, so constant drift is caught structurally.
+102. [pending] **Weak-field step ceiling.** The rule is `clamp(0.08·max(wfNearest(x), 0.05)/|v|, 1e-4, 6.0)`: scaled by distance to the *nearest* mass, but with several masses the far-field scale is the distance to the *system*. Derive the ceiling against that; verify with item 100's scene.
+103. [pending] **Far-field asymptotic handoff (optional).** Open, not dead: a reviewer overturned the claim that killed it. Mass tail dΘ/dr = 3Mb³/r⁵ derived and confirmed to ~1%; spin term falls at the same 1/r⁴ rate. Estimated ~11 of 74 steps/ray. Needs a handoff radius from a stated error budget, spin handled explicitly, off-bench validation with controls. Caveat: the starfield's cube-cell discontinuity makes any non-exact change to escaping rays a ~0.1%-of-pixels event.
+104. [pending] **Cleanup.** Delete the 12 `evolve/1/candidate-*` branches (winner applied; history in docs); fold `evolve-state/1/notes/` into `docs/` or keep `evolve-state/` as a local archive (git-ignored, 1.3 MB); confirm no stray worktrees; re-run the full e2e suite + benchmark and record final numbers in the Phase 21 report. Owner action: the machine's global git identity is still Claude.
+
+## Phase 22: Head-Coupled Perspective (§11)
+
+Owner request, 2026-10-07. Prototype first, with a go/no-go before any webcam work. Item 107's HQ path depends on item 101; the rest does not depend on Phase 21.
+
+105. [pending] **Mouse-driven prototype.** Eye position from the mouse; off-axis projection (§11.1) in the plain-Kerr path; static-observer eye displacement (§11.2); the depth control and scale-model mass readout (§11.3); physical-FOV auto-framing (§11.5). **Checkpoint:** owner judges the effect before tracking work starts.
+106. [pending] **Constraints.** Window-violation framing for D < 0; ergosphere clamp at the existing static-observer guard (§11.5).
+107. [pending] **All render paths.** BINARY and WEAK_FIELD (GLSL); WGSL HQ after item 101.
+108. [pending] **Webcam tracking.** MediaPipe Face Landmarker, opt-in and off by default, on-device notice; iris-size distance; One-Euro smoothing + prediction; one-time calibration with defaults (§11.6).
+109. [pending] **Verification.** Eye-position test seam; the four invariants of §11.6; full e2e suite; report `e2e/reports/phase22.md`.
+110. [pending] **Docs.** Derivation of the off-axis map and the scale model (`docs/derivations.md`); honesty-ladder entry; learn-more popup; README section.
